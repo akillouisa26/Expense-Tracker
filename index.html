@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Akil's Expense Tracker</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+  <!-- Firebase Modular JS SDKs (v10) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    window.FirebaseSDK = { initializeApp, getFirestore, doc, setDoc, getDoc, collection, getDocs, onSnapshot, getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup };
+  </script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-layout">
+    <!-- LEFT SIDEBAR NAVIGATION MENU -->
+    <aside class="app-sidebar">
+      <div class="sidebar-brand">
+        <h1 id="brandTitle" class="brand-title">Akil's Expense Tracker</h1>
+      </div>
+
+      <!-- Sidebar Navigation Menu Links -->
+      <nav class="sidebar-nav">
+        <button class="nav-link-btn active" data-tab="dashboard">
+          Dashboard
+        </button>
+        <button class="nav-link-btn" data-tab="savings">
+          Savings Vault
+        </button>
+        <button class="nav-link-btn" data-tab="ledger">
+          Transaction History
+        </button>
+        <button class="nav-link-btn" data-tab="notes">
+          My Notes
+        </button>
+        <button class="nav-link-btn" data-tab="settings">
+          Settings
+        </button>
+      </nav>
+
+
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="app-main">
+      <!-- TOP HEADER BAR (ADD ENTRY SHOWN ONLY ON DASHBOARD) -->
+      <header class="top-header-bar">
+        <h2 id="topPageTitle" class="top-page-title">Dashboard</h2>
+
+        <div class="top-right-actions">
+          <!-- ADD ENTRY BUTTON (VISIBLE ONLY ON DASHBOARD PAGE) -->
+          <button id="btnTopPlusAction" class="btn btn-plus-topright">
+            <i class="fa-solid fa-plus"></i> Add Entry
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB 1: DASHBOARD LEDGER FORMAT (EXACT NOTEBOOK FORMAT, NEW SLEEK STYLING) -->
+      <section id="tab-dashboard" class="tab-content active">
+        <div class="executive-ledger-card">
+          <div class="ledger-header">
+            <h2 class="ledger-title">My Segregations</h2>
+          </div>
+
+          <!-- Line-Items List in Exact Name ......... Amount Format -->
+          <div id="notebookSegregationsList" class="ledger-list">
+            <!-- Rendered dynamically -->
+          </div>
+
+          <!-- Executive Total Bar at Bottom -->
+          <div class="ledger-total-row">
+            <div class="total-label">Total</div>
+            <div class="total-dash">—</div>
+            <div id="notebookGrandTotal" class="total-amount">₹0</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: SAVINGS VAULT (READ-ONLY BANK PASSBOOK VIEW) -->
+      <section id="tab-savings" class="tab-content">
+        <div class="bankbook-card">
+          <div class="bankbook-header">
+            <h2 class="bank-name">Savings Vault</h2>
+            <div class="bankbook-balance-box">
+              <span class="bal-label">Vault Balance</span>
+              <h3 id="savingsVaultTotalDisplay" class="bal-amount">₹0</h3>
+            </div>
+          </div>
+
+          <div class="table-responsive mt-3">
+            <table class="passbook-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Particulars</th>
+                  <th>Amount Deposited (Cr)</th>
+                  <th>Vault Balance (₹)</th>
+                </tr>
+              </thead>
+              <tbody id="savingsPassbookBody">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: TRANSACTION HISTORY (DEBIT/CREDIT WITH PDF DOWNLOAD) -->
+      <section id="tab-ledger" class="tab-content">
+        <div class="section-container">
+          <div class="section-header">
+            <h2 class="section-title">Transaction History</h2>
+
+            <div class="action-buttons">
+              <!-- PDF DOWNLOAD BUTTON -->
+              <button id="btnDownloadPDF" class="btn btn-brown btn-sm">
+                <i class="fa-solid fa-file-pdf"></i> Download PDF Report
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Toolbar -->
+          <div class="filters-bar card card-body">
+            <div class="filter-group">
+              <label for="filterMonth">Month:</label>
+              <input type="month" id="filterMonth" class="form-input" />
+            </div>
+
+            <div class="filter-group">
+              <label for="filterSegregation">Category:</label>
+              <select id="filterSegregation" class="form-input">
+                <option value="ALL">All Categories</option>
+                <!-- Filled dynamically -->
+              </select>
+            </div>
+
+            <div class="filter-group">
+              <label for="filterType">Type:</label>
+              <select id="filterType" class="form-input">
+                <option value="ALL">All Entries</option>
+                <option value="EXPENSE">Debit (Expenses)</option>
+                <option value="INCOME">Credit (Top-Ups)</option>
+              </select>
+            </div>
+
+            <button id="btnClearFilters" class="btn btn-outline-brown btn-sm" style="margin-top: 1.4rem;">
+              Clear Filters
+            </button>
+          </div>
+
+          <!-- Transaction History Statement Table -->
+          <div class="table-responsive mt-3">
+            <table class="passbook-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Particulars</th>
+                  <th>Debit (Dr)</th>
+                  <th>Credit (Cr)</th>
+                  <th>Balance (₹)</th>
+                </tr>
+              </thead>
+              <tbody id="bankStatementBody">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: MY NOTES (TITLE, MONEY, & MARK COMPLETED) -->
+      <section id="tab-notes" class="tab-content">
+        <div class="section-container">
+          <div class="section-header">
+            <h2 class="section-title">My Notes</h2>
+          </div>
+
+          <div class="card card-body">
+            <div class="form-group">
+              <label for="personalNoteTitleInput">Note Title</label>
+              <input type="text" id="personalNoteTitleInput" class="form-input" placeholder="e.g. Buy Shoes, Pay Bill..." required />
+            </div>
+
+            <div class="form-group">
+              <label for="personalNoteAmountInput">Money Amount (₹)</label>
+              <input type="number" id="personalNoteAmountInput" class="form-input" min="0" step="any" placeholder="e.g. 1500" required />
+            </div>
+
+            <button id="btnSavePersonalNote" class="btn btn-brown">
+              Save Note
+            </button>
+          </div>
+
+          <!-- Saved Notes List -->
+          <div class="mt-4">
+            <h3 class="mb-3">Saved Notes</h3>
+            <div id="savedNotesContainer" class="notes-grid">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: SETTINGS -->
+      <section id="tab-settings" class="tab-content">
+        <div class="section-container">
+          <div class="section-header">
+            <h2 class="section-title">Settings & Preferences</h2>
+          </div>
+
+          <div class="card card-body mb-4">
+            <h3 class="mb-2" style="font-size: 1.1rem; color: var(--brown-primary);"><i class="fa-solid fa-sliders"></i> Profile & Preferences</h3>
+            <p class="text-muted mb-3" style="font-size: 0.85rem;">
+              Manage your display name and application settings.
+            </p>
+
+            <form id="settingsSecurityForm">
+              <div class="form-group mb-3">
+                <label for="settingsUserIdInput">Your Name / User ID</label>
+                <input type="text" id="settingsUserIdInput" class="form-input" placeholder="e.g. Akil" required />
+              </div>
+
+              <button type="submit" id="btnSaveSecuritySettings" class="btn btn-brown mt-3">
+                <i class="fa-solid fa-floppy-disk"></i> Save Settings
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- MODAL: UNIFIED PLUS (+) ACTION MODAL -->
+    <dialog id="modalPlusAction" class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">Add Entry</h2>
+          <button class="btn-close-modal" data-close-modal="modalPlusAction">&times;</button>
+        </div>
+        <div class="modal-body text-center">
+          <div class="plus-options-grid">
+            <button id="btnChoiceAddExisting" class="plus-option-card">
+              <h3>Add / Spend Money</h3>
+              <p>Record an expense or top-up for an existing category.</p>
+            </button>
+
+            <button id="btnChoiceAddNewSegregation" class="plus-option-card">
+              <h3>Add New Category</h3>
+              <p>Create a new category (e.g. Amma, Makeup, Thaya...).</p>
+            </button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 1: SPECIFIC CATEGORY DETAIL MODAL -->
+    <dialog id="modalSegregationDetail" class="modal-dialog">
+      <div class="modal-content large-modal">
+        <div class="modal-header">
+          <div>
+            <h2 id="detailSegregationTitle" class="modal-title">Category Details</h2>
+          </div>
+          <button class="btn-close-modal" data-close-modal="modalSegregationDetail">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Metrics -->
+          <div class="segregation-detail-metrics">
+            <div class="detail-metric-card">
+              <span class="label">How Much I Have (Allocated)</span>
+              <h3 id="detailAllocatedFund">₹0</h3>
+            </div>
+            <div class="detail-metric-card danger">
+              <span class="label">How Much I Spend</span>
+              <h3 id="detailTotalSpent">₹0</h3>
+            </div>
+            <div class="detail-metric-card success">
+              <span class="label">Remaining Balance</span>
+              <h3 id="detailRemainingFund">₹0</h3>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="detail-actions">
+            <button id="btnQuickAddBucketExpense" class="btn btn-brown">
+              Add Expense
+            </button>
+            <button id="btnTopUpBucketFund" class="btn btn-camel">
+              Top-Up Fund
+            </button>
+            <button id="btnEditSegregationSettings" class="btn btn-outline-brown">
+              Edit Category
+            </button>
+            <button id="btnDeleteSegregation" class="btn btn-outline-danger">
+              Delete Category
+            </button>
+          </div>
+
+          <!-- History of that Specific Category ONLY -->
+          <div class="mt-4">
+            <h4 class="mb-2">History of this Category</h4>
+            <div class="table-responsive">
+              <table class="passbook-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Amount (₹)</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="detailTransactionsTableBody">
+                  <!-- Rendered dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 2: ADD / EDIT TRANSACTION MODAL -->
+    <dialog id="modalTransaction" class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="transactionModalTitle" class="modal-title">Add Entry</h2>
+          <button class="btn-close-modal" data-close-modal="modalTransaction">&times;</button>
+        </div>
+        <form id="transactionForm" class="modal-body">
+          <input type="hidden" id="txIdInput" />
+
+          <div class="form-group">
+            <label for="txTypeSelect">Transaction Type</label>
+            <select id="txTypeSelect" class="form-input" required>
+              <option value="EXPENSE">Debit (Spend Money)</option>
+              <option value="INCOME">Credit (Add Money / Top-Up)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="txSegregationSelect">Category</label>
+            <select id="txSegregationSelect" class="form-input" required>
+              <!-- Populated dynamically -->
+            </select>
+            <input type="text" id="txSegregationReadOnly" class="form-input hidden" readonly disabled style="background-color: var(--bg-card-hover); font-weight: 700;" />
+          </div>
+
+          <div class="form-group">
+            <label for="txAmountInput">Amount (₹)</label>
+            <input type="number" id="txAmountInput" class="form-input" min="0.01" step="any" placeholder="0" required />
+          </div>
+
+          <div class="form-group">
+            <label for="txDateInput">Date</label>
+            <input type="date" id="txDateInput" class="form-input" required />
+          </div>
+
+          <div class="form-group">
+            <label for="txNoteInput">Description <span style="color: #dc3545;">*</span></label>
+            <input type="text" id="txNoteInput" class="form-input" placeholder="Enter description..." required />
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-brown" data-close-modal="modalTransaction">Cancel</button>
+            <button type="submit" class="btn btn-brown">Save</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- MODAL: STYLED ALERT DIALOG (MERGED WITH WEB APP THEME) -->
+    <dialog id="modalAlert" class="modal-dialog">
+      <div class="modal-content" style="max-width: 380px; text-align: center;">
+        <div class="modal-header" style="justify-content: center; border-bottom: none; padding: 1.5rem 1.5rem 0.5rem 1.5rem;">
+          <h2 id="modalAlertTitle" class="modal-title" style="color: var(--debit-color); font-size: 1.3rem; font-weight: 800;">
+            Insufficient Balance!
+          </h2>
+        </div>
+        <div class="modal-body" style="padding: 0.5rem 1.5rem 1.25rem 1.5rem;">
+          <p id="modalAlertMessage" style="font-weight: 700; color: var(--text-main); font-size: 1rem; margin: 0;">
+            Insufficient Balance!
+          </p>
+        </div>
+        <div class="modal-footer" style="justify-content: center; border-top: none; padding: 0 1.5rem 1.5rem 1.5rem;">
+          <button type="button" class="btn btn-brown" data-close-modal="modalAlert" style="min-width: 100px;">
+            OK
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 3: ADD / EDIT CATEGORY MODAL -->
+    <dialog id="modalSegregation" class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="segregationModalTitle" class="modal-title">Add Category</h2>
+          <button class="btn-close-modal" data-close-modal="modalSegregation">&times;</button>
+        </div>
+        <form id="segregationForm" class="modal-body">
+          <input type="hidden" id="segIdInput" />
+
+          <div class="form-group">
+            <label for="segNameInput">Category Name</label>
+            <input type="text" id="segNameInput" class="form-input" placeholder="e.g. Amma, Makeup..." required />
+          </div>
+
+          <div class="form-group">
+            <label for="segAllocatedInput">Allocated Amount (₹)</label>
+            <input type="number" id="segAllocatedInput" class="form-input" min="0" step="any" placeholder="0" required />
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-brown" data-close-modal="modalSegregation">Cancel</button>
+            <button type="submit" class="btn btn-brown">Save</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+
+    <!-- TOAST NOTIFICATION CONTAINER -->
+    <div id="toastContainer" class="toast-container"></div>
+  </div>
+
+  <!-- Firebase SDK for Automatic Cloud Sync -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    window.FirebaseSDK = { initializeApp, getFirestore, doc, setDoc, onSnapshot };
+    window.dispatchEvent(new Event('firebase-sdk-ready'));
+  </script>
+
+  <!-- Main JavaScript App -->
+  <script src="app.js"></script>
+</body>
+</html>
