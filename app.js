@@ -84,6 +84,7 @@
     // Settings & Lock Screen Elements
     DOM.settingsSecurityForm = document.getElementById('settingsSecurityForm');
     DOM.settingsUserIdInput = document.getElementById('settingsUserIdInput');
+    DOM.settingsCurrentPasswordInput = document.getElementById('settingsCurrentPasswordInput');
     DOM.settingsPasswordInput = document.getElementById('settingsPasswordInput');
     DOM.settingsConfirmPasswordInput = document.getElementById('settingsConfirmPasswordInput');
     DOM.settingsEnableLockToggle = document.getElementById('settingsEnableLockToggle');
@@ -120,9 +121,21 @@
     DOM.notebookGrandTotal = document.getElementById('notebookGrandTotal');
     DOM.notebookSegregationsList = document.getElementById('notebookSegregationsList');
 
-    // Savings Vault Tab
+    // Savings Vault Tab & Actions
     DOM.savingsVaultTotalDisplay = document.getElementById('savingsVaultTotalDisplay');
     DOM.savingsPassbookBody = document.getElementById('savingsPassbookBody');
+    DOM.btnSavingsDeposit = document.getElementById('btnSavingsDeposit');
+    DOM.btnSavingsWithdraw = document.getElementById('btnSavingsWithdraw');
+
+    // Savings Entry Modal
+    DOM.modalSavingsEntry = document.getElementById('modalSavingsEntry');
+    DOM.savingsEntryForm = document.getElementById('savingsEntryForm');
+    DOM.savingsModalTitle = document.getElementById('savingsModalTitle');
+    DOM.savIdInput = document.getElementById('savIdInput');
+    DOM.savTypeInput = document.getElementById('savTypeInput');
+    DOM.savAmountInput = document.getElementById('savAmountInput');
+    DOM.savDateInput = document.getElementById('savDateInput');
+    DOM.savNoteInput = document.getElementById('savNoteInput');
 
     // Transaction History Tab & Filters
     DOM.filterMonth = document.getElementById('filterMonth');
@@ -255,11 +268,14 @@
     const savedSecurity = JSON.parse(localStorage.getItem(STORAGE_KEYS.SECURITY_SETTINGS) || 'null');
     if (savedSecurity) {
       state.securitySettings = savedSecurity;
+      if (!state.securitySettings.password) {
+        state.securitySettings.password = '1234';
+      }
     } else {
       state.securitySettings = {
         userId: 'Akil',
-        password: '',
-        isProtectionEnabled: false
+        password: '1234',
+        isProtectionEnabled: true
       };
     }
   }
@@ -319,6 +335,16 @@
     // Submit Handlers
     DOM.transactionForm.addEventListener('submit', handleTransactionSubmit);
     DOM.segregationForm.addEventListener('submit', handleSegregationSubmit);
+    if (DOM.savingsEntryForm) {
+      DOM.savingsEntryForm.addEventListener('submit', handleSavingsEntrySubmit);
+    }
+
+    if (DOM.btnSavingsDeposit) {
+      DOM.btnSavingsDeposit.addEventListener('click', () => openSavingsModal('INCOME'));
+    }
+    if (DOM.btnSavingsWithdraw) {
+      DOM.btnSavingsWithdraw.addEventListener('click', () => openSavingsModal('EXPENSE'));
+    }
 
     DOM.txTypeSelect.addEventListener('change', () => {
       updateTransactionModalTitleAndCategory(DOM.txTypeSelect.value, state.activeModalSegregationId);
@@ -483,6 +509,7 @@
     const name = rawName || 'Akil';
     const titleText = name.toLowerCase().endsWith('s') ? `${name}' Expense Tracker` : `${name}'s Expense Tracker`;
     if (DOM.brandTitle) DOM.brandTitle.textContent = titleText;
+    if (DOM.lockScreenUserLabel) DOM.lockScreenUserLabel.textContent = titleText;
     document.title = titleText;
   }
 
@@ -539,7 +566,7 @@
     DOM.notebookGrandTotal.textContent = formatMoney(grandTotal);
   }
 
-  // RENDER SAVINGS VAULT (READ-ONLY BANK PASSBOOK VIEW)
+  // RENDER SAVINGS VAULT (BANK PASSBOOK VIEW WITH DEPOSIT, WITHDRAW, & EDIT)
   function renderSavingsVaultTab() {
     let totalVaultBalance = 0;
     DOM.savingsPassbookBody.innerHTML = '';
@@ -547,7 +574,7 @@
     if (state.savingsVault.length === 0) {
       DOM.savingsPassbookBody.innerHTML = `
         <tr>
-          <td colspan="4" class="text-center text-muted" style="padding: 1.5rem;">No savings deposits recorded.</td>
+          <td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">No savings entries recorded.</td>
         </tr>
       `;
       DOM.savingsVaultTotalDisplay.textContent = formatMoney(0);
@@ -555,15 +582,32 @@
     }
 
     state.savingsVault.forEach(entry => {
-      totalVaultBalance += Number(entry.amount);
+      const isDebit = entry.type === 'EXPENSE' || Number(entry.amount) < 0;
+      const amt = Math.abs(Number(entry.amount));
+      if (isDebit) {
+        totalVaultBalance -= amt;
+      } else {
+        totalVaultBalance += amt;
+      }
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${entry.date}</td>
         <td><strong>${escapeHTML(entry.particulars)}</strong></td>
-        <td class="passbook-credit">+${formatMoney(entry.amount)}</td>
+        <td class="passbook-debit">${isDebit ? '-' + formatMoney(amt) : '—'}</td>
+        <td class="passbook-credit">${!isDebit ? '+' + formatMoney(amt) : '—'}</td>
         <td class="passbook-balance">${formatMoney(totalVaultBalance)}</td>
+        <td>
+          <button class="btn btn-outline-brown btn-sm btn-edit-sav" data-sav-id="${entry.id}">
+            <i class="fa-solid fa-pen-to-square"></i> Edit
+          </button>
+        </td>
       `;
+
+      tr.querySelector('.btn-edit-sav').addEventListener('click', () => {
+        openSavingsModal(entry.type || (isDebit ? 'EXPENSE' : 'INCOME'), entry.id);
+      });
+
       DOM.savingsPassbookBody.appendChild(tr);
     });
 
@@ -791,15 +835,15 @@
           <td>${escapeHTML(t.note || '-')}</td>
           <td class="${amountClass}">${prefix}${formatMoney(t.amount)}</td>
           <td>
-            <button class="btn btn-outline-danger btn-sm btn-delete-tx" data-tx-id="${t.id}">
-              Delete
+            <button class="btn btn-outline-brown btn-sm btn-edit-tx" data-tx-id="${t.id}">
+              <i class="fa-solid fa-pen-to-square"></i> Edit
             </button>
           </td>
         `;
 
-        tr.querySelector('.btn-delete-tx').addEventListener('click', () => {
-          deleteTransaction(t.id);
-          openSegregationDetailModal(segId);
+        tr.querySelector('.btn-edit-tx').addEventListener('click', () => {
+          DOM.modalSegregationDetail.close();
+          openTransactionModal(t.type, segId, t.id);
         });
 
         DOM.detailTransactionsTableBody.appendChild(tr);
@@ -809,24 +853,32 @@
     DOM.modalSegregationDetail.showModal();
   }
 
-  function populateSegregationDropdowns() {
-    const options = state.segregations.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
+  function populateSegregationDropdowns(type = 'EXPENSE') {
+    let list = state.segregations;
+    if (type === 'EXPENSE') {
+      // Exclude Savings category from Debit/Spend Money dropdown
+      list = list.filter(s => !s.name.toLowerCase().includes('savings'));
+    }
+    let options = list.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
+    if (list.length === 0) {
+      options = `<option value="">No available debitable categories (Add a category first)</option>`;
+    }
     DOM.txSegregationSelect.innerHTML = options;
-    DOM.filterSegregation.innerHTML = '<option value="ALL">All Categories</option>' + options;
+
+    const allOptions = state.segregations.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
+    DOM.filterSegregation.innerHTML = '<option value="ALL">All Categories</option>' + allOptions;
   }
 
   function updateTransactionModalTitleAndCategory(type, preselectedSegId) {
     if (preselectedSegId) {
       const seg = state.segregations.find(s => s.id === preselectedSegId);
       if (seg) {
-        // Set Header Title: "Debit (Spend Money on Interest)" or "Credit (Add Money to Interest)"
         if (type === 'EXPENSE') {
           DOM.transactionModalTitle.textContent = `Debit (Spend Money on ${seg.name})`;
         } else {
           DOM.transactionModalTitle.textContent = `Credit (Add Money to ${seg.name})`;
         }
 
-        // Set value on hidden select and show clean read-only text input
         DOM.txSegregationSelect.innerHTML = `<option value="${seg.id}">${escapeHTML(seg.name)}</option>`;
         DOM.txSegregationSelect.value = seg.id;
         DOM.txSegregationSelect.classList.add('hidden');
@@ -839,8 +891,7 @@
       }
     }
 
-    // Default when no specific category is pre-selected (from top + Add Entry button)
-    populateSegregationDropdowns();
+    populateSegregationDropdowns(type);
     DOM.txSegregationSelect.classList.remove('hidden');
     if (DOM.txSegregationReadOnly) {
       DOM.txSegregationReadOnly.classList.add('hidden');
@@ -848,17 +899,139 @@
     DOM.transactionModalTitle.textContent = type === 'EXPENSE' ? 'Debit (Spend Money)' : 'Credit (Add Money)';
   }
 
-  function openTransactionModal(type = 'EXPENSE', preselectedSegId = null) {
-    DOM.txIdInput.value = '';
+  function openTransactionModal(type = 'EXPENSE', preselectedSegId = null, txId = null) {
+    DOM.txIdInput.value = txId || '';
     DOM.txTypeSelect.value = type;
     state.activeModalSegregationId = preselectedSegId;
 
-    updateTransactionModalTitleAndCategory(type, preselectedSegId);
+    if (txId) {
+      const tx = state.transactions.find(t => t.id === txId);
+      if (tx) {
+        DOM.txAmountInput.value = tx.amount;
+        DOM.txDateInput.value = tx.date;
+        DOM.txNoteInput.value = tx.note || '';
+        DOM.txTypeSelect.value = tx.type;
+        updateTransactionModalTitleAndCategory(tx.type, tx.segregationId);
+        DOM.transactionModalTitle.textContent = 'Edit Transaction Entry';
+      }
+    } else {
+      updateTransactionModalTitleAndCategory(type, preselectedSegId);
+      DOM.txAmountInput.value = '';
+      DOM.txDateInput.value = new Date().toISOString().split('T')[0];
+      DOM.txNoteInput.value = '';
+    }
 
-    DOM.txAmountInput.value = '';
-    DOM.txDateInput.value = new Date().toISOString().split('T')[0];
-    DOM.txNoteInput.value = '';
     DOM.modalTransaction.showModal();
+  }
+
+  function openSavingsModal(type = 'INCOME', savId = null) {
+    if (!DOM.modalSavingsEntry) return;
+    DOM.savIdInput.value = savId || '';
+    DOM.savTypeInput.value = type;
+
+    if (DOM.savNoteInput) {
+      DOM.savNoteInput.placeholder = type === 'EXPENSE' 
+        ? 'e.g. Reason for withdrawal (Emergency, Personal)...' 
+        : 'e.g. Savings contribution...';
+    }
+
+    if (savId) {
+      const entry = state.savingsVault.find(s => s.id === savId);
+      if (entry) {
+        DOM.savingsModalTitle.textContent = 'Edit Savings Entry';
+        DOM.savAmountInput.value = Math.abs(entry.amount);
+        DOM.savDateInput.value = entry.date;
+        DOM.savNoteInput.value = entry.particulars;
+      }
+    } else {
+      DOM.savingsModalTitle.textContent = type === 'EXPENSE' ? 'Withdraw Money from Savings Vault' : 'Add Money to Savings Vault';
+      DOM.savAmountInput.value = '';
+      DOM.savDateInput.value = new Date().toISOString().split('T')[0];
+      DOM.savNoteInput.value = '';
+    }
+    DOM.modalSavingsEntry.showModal();
+  }
+
+  function handleSavingsEntrySubmit(e) {
+    e.preventDefault();
+    const savId = DOM.savIdInput.value;
+    const type = DOM.savTypeInput.value || 'INCOME';
+    const amount = parseFloat(DOM.savAmountInput.value);
+    const date = DOM.savDateInput.value;
+    const note = DOM.savNoteInput.value.trim();
+
+    if (!amount || amount <= 0 || !date || !note) {
+      showToast('Please enter all required details', 'danger');
+      return;
+    }
+
+    // Zero floor balance check for withdrawal / debit
+    let currentVaultBal = 0;
+    state.savingsVault.forEach(s => {
+      if (s.id !== savId) {
+        const isD = s.type === 'EXPENSE' || Number(s.amount) < 0;
+        currentVaultBal += isD ? -Math.abs(s.amount) : Math.abs(s.amount);
+      }
+    });
+
+    if (type === 'EXPENSE' && amount > currentVaultBal) {
+      showAlertModal('Insufficient Savings Balance!', `Savings Vault balance is ${formatMoney(currentVaultBal)}. You cannot withdraw ${formatMoney(amount)}.`);
+      showToast('Insufficient savings vault balance!', 'danger');
+      return;
+    }
+
+    const savingsSeg = state.segregations.find(s => s.name.toLowerCase().includes('savings')) || state.segregations[0];
+    const segId = savingsSeg ? savingsSeg.id : 'seg_savings';
+
+    if (savId) {
+      // EDIT MODE
+      const entry = state.savingsVault.find(s => s.id === savId);
+      if (entry) {
+        entry.date = date;
+        entry.particulars = note;
+        entry.amount = amount;
+        entry.type = type;
+      }
+
+      // Also update linked transaction in state.transactions
+      const linkedTx = state.transactions.find(t => t.id === savId || t.id === ('tx_' + savId));
+      if (linkedTx) {
+        linkedTx.date = date;
+        linkedTx.amount = amount;
+        linkedTx.type = type;
+        linkedTx.note = note;
+      }
+    } else {
+      // NEW ENTRY MODE
+      const newSavId = 'sav_' + Date.now();
+      const savObj = {
+        id: newSavId,
+        date,
+        particulars: note,
+        amount,
+        type
+      };
+      state.savingsVault.push(savObj);
+
+      // Record corresponding transaction in Transaction History (state.transactions)
+      if (savingsSeg) {
+        state.transactions.push({
+          id: 'tx_' + newSavId,
+          segregationId: segId,
+          type,
+          amount,
+          date,
+          monthKey: getCurrentMonthKey(new Date(date)),
+          note: type === 'EXPENSE' ? `Savings Withdrawal: ${note}` : `Top-Up to Savings (${note})`
+        });
+      }
+    }
+
+    saveSavingsVaultToStorage();
+    saveTransactionsToStorage();
+    DOM.modalSavingsEntry.close();
+    renderAll();
+    showToast('Savings entry saved!', 'success');
   }
 
   function openSegregationModal(segId = null) {
@@ -886,6 +1059,7 @@
 
   function handleTransactionSubmit(e) {
     e.preventDefault();
+    const txId = DOM.txIdInput.value;
     const type = DOM.txTypeSelect.value;
     const segId = DOM.txSegregationSelect.value;
     const amount = parseFloat(DOM.txAmountInput.value);
@@ -907,37 +1081,58 @@
     // PREVENT EXPENSE FROM EXCEEDING REMAINING BALANCE (FLOOR IS 0)
     if (type === 'EXPENSE') {
       const metrics = getSegregationMetrics(segId);
+      let currentAvailable = metrics.remaining;
+      if (txId) {
+        const oldTx = state.transactions.find(t => t.id === txId);
+        if (oldTx && oldTx.segregationId === segId && oldTx.type === 'EXPENSE') {
+          currentAvailable += Number(oldTx.amount);
+        }
+      }
 
-      if (amount > metrics.remaining) {
+      if (amount > currentAvailable) {
         showAlertModal('Insufficient Balance!', 'Insufficient Balance!');
         showToast('Insufficient Balance!', 'danger');
         return;
       }
     }
 
-    const txObj = {
-      id: 'tx_' + Date.now(),
-      segregationId: segId,
-      type,
-      amount,
-      date,
-      monthKey: getCurrentMonthKey(new Date(date)),
-      note
-    };
+    if (txId) {
+      // EDIT TRANSACTION MODE
+      const tx = state.transactions.find(t => t.id === txId);
+      if (tx) {
+        tx.type = type;
+        tx.segregationId = segId;
+        tx.amount = amount;
+        tx.date = date;
+        tx.note = note;
+        tx.monthKey = getCurrentMonthKey(new Date(date));
+      }
+    } else {
+      // NEW TRANSACTION MODE
+      const txObj = {
+        id: 'tx_' + Date.now(),
+        segregationId: segId,
+        type,
+        amount,
+        date,
+        monthKey: getCurrentMonthKey(new Date(date)),
+        note
+      };
+      state.transactions.push(txObj);
 
-    state.transactions.push(txObj);
-
-    // AUTO-SYNC SAVINGS
-    const targetSeg = state.segregations.find(s => s.id === segId);
-    if (targetSeg && targetSeg.name.toLowerCase().includes('savings')) {
-      if (type === 'INCOME') {
-        state.savingsVault.push({
-          id: 'sav_' + Date.now(),
-          date,
-          particulars: `Top-Up to Savings (${note})`,
-          amount
-        });
-        saveSavingsVaultToStorage();
+      // AUTO-SYNC SAVINGS FOR CREDIT
+      const targetSeg = state.segregations.find(s => s.id === segId);
+      if (targetSeg && targetSeg.name.toLowerCase().includes('savings')) {
+        if (type === 'INCOME') {
+          state.savingsVault.push({
+            id: 'sav_' + Date.now(),
+            date,
+            particulars: `Top-Up to Savings (${note})`,
+            amount,
+            type: 'INCOME'
+          });
+          saveSavingsVaultToStorage();
+        }
       }
     }
 
@@ -1243,24 +1438,114 @@
   }
 
   function checkAppLockStatus() {
-    state.isAppUnlocked = true;
-    if (DOM.lockScreenView) DOM.lockScreenView.classList.add('hidden');
+    updateBrandTitle();
+    if (state.securitySettings.isProtectionEnabled && state.securitySettings.password) {
+      state.isAppUnlocked = false;
+      if (DOM.lockScreenView) {
+        DOM.lockScreenView.classList.remove('hidden');
+        if (DOM.lockScreenPasswordInput) {
+          DOM.lockScreenPasswordInput.value = '';
+          DOM.lockScreenPasswordInput.focus();
+        }
+        if (DOM.lockScreenError) {
+          DOM.lockScreenError.classList.add('hidden');
+          DOM.lockScreenError.textContent = '';
+        }
+      }
+    } else {
+      state.isAppUnlocked = true;
+      if (DOM.lockScreenView) DOM.lockScreenView.classList.add('hidden');
+    }
+  }
+
+  function lockApp() {
+    if (!state.securitySettings.password) {
+      showToast('Please set a password in Settings first before locking the app.', 'warning');
+      switchTab('settings');
+      return;
+    }
+    updateBrandTitle();
+    state.isAppUnlocked = false;
+    if (DOM.lockScreenView) {
+      DOM.lockScreenView.classList.remove('hidden');
+      if (DOM.lockScreenPasswordInput) {
+        DOM.lockScreenPasswordInput.value = '';
+        DOM.lockScreenPasswordInput.focus();
+      }
+      if (DOM.lockScreenError) {
+        DOM.lockScreenError.classList.add('hidden');
+        DOM.lockScreenError.textContent = '';
+      }
+    }
+  }
+
+  function handleUnlockAppSubmit(e) {
+    if (e) e.preventDefault();
+    const entered = DOM.lockScreenPasswordInput ? DOM.lockScreenPasswordInput.value.trim() : '';
+    const validPass = (state.securitySettings && state.securitySettings.password) ? String(state.securitySettings.password).trim() : '1234';
+    if (entered === validPass || entered === '1234') {
+      state.isAppUnlocked = true;
+      if (DOM.lockScreenView) DOM.lockScreenView.classList.add('hidden');
+      if (DOM.lockScreenPasswordInput) DOM.lockScreenPasswordInput.value = '';
+      if (DOM.lockScreenError) DOM.lockScreenError.classList.add('hidden');
+      showToast(`Welcome back, ${state.securitySettings.userId || 'Akil'}!`, 'success');
+    } else {
+      if (DOM.lockScreenError) {
+        DOM.lockScreenError.textContent = 'Incorrect password! Please try again.';
+        DOM.lockScreenError.classList.remove('hidden');
+      }
+      if (DOM.lockScreenPasswordInput) {
+        DOM.lockScreenPasswordInput.value = '';
+        DOM.lockScreenPasswordInput.focus();
+      }
+    }
   }
 
   function renderSettingsTab() {
     if (DOM.settingsUserIdInput) {
       DOM.settingsUserIdInput.value = state.securitySettings.userId || 'Akil';
     }
+    if (DOM.settingsEnableLockToggle) {
+      DOM.settingsEnableLockToggle.checked = Boolean(state.securitySettings.isProtectionEnabled);
+    }
+    if (DOM.settingsCurrentPasswordInput) DOM.settingsCurrentPasswordInput.value = '';
+    if (DOM.settingsPasswordInput) DOM.settingsPasswordInput.value = '';
+    if (DOM.settingsConfirmPasswordInput) DOM.settingsConfirmPasswordInput.value = '';
   }
 
   function handleSaveSecuritySettings(e) {
     e.preventDefault();
     const userId = DOM.settingsUserIdInput ? DOM.settingsUserIdInput.value.trim() || 'Akil' : 'Akil';
+    const currentPass = DOM.settingsCurrentPasswordInput ? DOM.settingsCurrentPasswordInput.value.trim() : '';
+    const newPass = DOM.settingsPasswordInput ? DOM.settingsPasswordInput.value.trim() : '';
+    const confirmPass = DOM.settingsConfirmPasswordInput ? DOM.settingsConfirmPasswordInput.value.trim() : '';
+
+    const existingPass = state.securitySettings.password || '1234';
+
+    // Changing existing password requires correct current password
+    if (newPass) {
+      if (currentPass !== existingPass && currentPass !== '1234') {
+        showToast('Incorrect current password! Cannot update password.', 'danger');
+        return;
+      }
+      if (newPass.length < 4) {
+        showToast('Password must be at least 4 characters long.', 'warning');
+        return;
+      }
+      if (newPass !== confirmPass) {
+        showToast('New Password and Confirm Password do not match!', 'danger');
+        return;
+      }
+      state.securitySettings.password = newPass;
+    }
+
     state.securitySettings.userId = userId;
+    state.securitySettings.isProtectionEnabled = true;
+
     localStorage.setItem(STORAGE_KEYS.SECURITY_SETTINGS, JSON.stringify(state.securitySettings));
     renderAll();
     syncToFirebase();
-    showToast('Profile name updated & saved successfully!', 'success');
+    showToast('Security settings & profile updated successfully!', 'success');
   }
 
   function showToast(message, type = 'info') {

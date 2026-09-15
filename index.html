@@ -51,6 +51,12 @@
         </button>
       </nav>
 
+      <div style="padding: 0 1rem; margin-top: auto; margin-bottom: 1rem;">
+        <button id="btnLockAppSidebar" class="btn btn-outline-brown btn-sm" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-weight: 700; padding: 0.6rem 1rem;">
+          <i class="fa-solid fa-lock"></i> Lock App
+        </button>
+      </div>
+
 
     </aside>
 
@@ -93,7 +99,14 @@
       <section id="tab-savings" class="tab-content">
         <div class="bankbook-card">
           <div class="bankbook-header">
-            <h2 class="bank-name">Savings Vault</h2>
+            <div>
+              <h2 class="bank-name">Savings Vault</h2>
+              <div class="mt-2">
+                <button id="btnSavingsWithdraw" class="btn btn-outline-brown btn-sm">
+                  <i class="fa-solid fa-minus"></i> Withdraw Money (Debit)
+                </button>
+              </div>
+            </div>
             <div class="bankbook-balance-box">
               <span class="bal-label">Vault Balance</span>
               <h3 id="savingsVaultTotalDisplay" class="bal-amount">₹0</h3>
@@ -106,8 +119,10 @@
                 <tr>
                   <th>Date</th>
                   <th>Particulars</th>
-                  <th>Amount Deposited (Cr)</th>
+                  <th>Debit (-)</th>
+                  <th>Credit (+)</th>
                   <th>Vault Balance (₹)</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody id="savingsPassbookBody">
@@ -218,13 +233,13 @@
       <section id="tab-settings" class="tab-content">
         <div class="section-container">
           <div class="section-header">
-            <h2 class="section-title">Settings & Preferences</h2>
+            <h2 class="section-title">Settings</h2>
           </div>
 
           <div class="card card-body mb-4">
-            <h3 class="mb-2" style="font-size: 1.1rem; color: var(--brown-primary);"><i class="fa-solid fa-sliders"></i> Profile & Preferences</h3>
+            <h3 class="mb-2" style="font-size: 1.1rem; color: var(--brown-primary);"><i class="fa-solid fa-user"></i> Profile</h3>
             <p class="text-muted mb-3" style="font-size: 0.85rem;">
-              Manage your display name and application settings.
+              Manage your display name and security settings.
             </p>
 
             <form id="settingsSecurityForm">
@@ -233,9 +248,49 @@
                 <input type="text" id="settingsUserIdInput" class="form-input" placeholder="e.g. Akil" required />
               </div>
 
-              <button type="submit" id="btnSaveSecuritySettings" class="btn btn-brown mt-3">
-                <i class="fa-solid fa-floppy-disk"></i> Save Settings
-              </button>
+              <!-- PASSWORD SECURITY -->
+              <hr style="border: none; border-top: 1.5px solid var(--border-color); margin: 1.5rem 0;" />
+
+              <h3 class="mb-3" style="font-size: 1.1rem; color: var(--brown-primary);"><i class="fa-solid fa-lock"></i> Password</h3>
+
+              <div class="form-group mb-3">
+                <label for="settingsCurrentPasswordInput">Current Password</label>
+                <div class="password-input-group">
+                  <input type="password" id="settingsCurrentPasswordInput" class="form-input" placeholder="Enter current password" />
+                  <button type="button" class="toggle-password-btn" data-target="settingsCurrentPasswordInput" tabindex="-1">
+                    <i class="fa-solid fa-eye"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group mb-3">
+                <label for="settingsPasswordInput">New Password</label>
+                <div class="password-input-group">
+                  <input type="password" id="settingsPasswordInput" class="form-input" placeholder="Enter new password" />
+                  <button type="button" class="toggle-password-btn" data-target="settingsPasswordInput" tabindex="-1">
+                    <i class="fa-solid fa-eye"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group mb-3">
+                <label for="settingsConfirmPasswordInput">Confirm New Password</label>
+                <div class="password-input-group">
+                  <input type="password" id="settingsConfirmPasswordInput" class="form-input" placeholder="Confirm new password" />
+                  <button type="button" class="toggle-password-btn" data-target="settingsConfirmPasswordInput" tabindex="-1">
+                    <i class="fa-solid fa-eye"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;" class="mt-4">
+                <button type="submit" id="btnSaveSecuritySettings" class="btn btn-brown">
+                  <i class="fa-solid fa-floppy-disk"></i> Save Security Settings
+                </button>
+                <button type="button" id="btnLockAppNow" class="btn btn-outline-brown">
+                  <i class="fa-solid fa-lock"></i> Lock App Now
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -381,6 +436,40 @@
       </div>
     </dialog>
 
+    <!-- MODAL: ADD / EDIT SAVINGS VAULT ENTRY MODAL -->
+    <dialog id="modalSavingsEntry" class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="savingsModalTitle" class="modal-title">Savings Vault Entry</h2>
+          <button class="btn-close-modal" data-close-modal="modalSavingsEntry">&times;</button>
+        </div>
+        <form id="savingsEntryForm" class="modal-body">
+          <input type="hidden" id="savIdInput" />
+          <input type="hidden" id="savTypeInput" value="INCOME" />
+
+          <div class="form-group">
+            <label for="savAmountInput">Amount (₹)</label>
+            <input type="number" id="savAmountInput" class="form-input" min="0.01" step="any" placeholder="0" required />
+          </div>
+
+          <div class="form-group">
+            <label for="savDateInput">Date</label>
+            <input type="date" id="savDateInput" class="form-input" required />
+          </div>
+
+          <div class="form-group">
+            <label for="savNoteInput">Particulars / Description <span style="color: #dc3545;">*</span></label>
+            <input type="text" id="savNoteInput" class="form-input" placeholder="e.g. Reason for withdrawal (Emergency, Personal)..." required />
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-brown" data-close-modal="modalSavingsEntry">Cancel</button>
+            <button type="submit" class="btn btn-brown">Save Entry</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
     <!-- MODAL: STYLED ALERT DIALOG (MERGED WITH WEB APP THEME) -->
     <dialog id="modalAlert" class="modal-dialog">
       <div class="modal-content" style="max-width: 380px; text-align: center;">
@@ -433,6 +522,31 @@
 
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toastContainer" class="toast-container"></div>
+  </div>
+
+  <!-- LOCK SCREEN OVERLAY -->
+  <div id="lockScreenView" class="lock-screen-overlay hidden">
+    <div class="lock-card">
+      <h2 id="lockScreenUserLabel" class="lock-user-title">Akil's Expense Tracker</h2>
+      <p id="lockScreenSubtitle" class="lock-subtitle">Enter the password</p>
+      
+      <form id="lockScreenForm" class="lock-form" style="margin-top: 1.25rem;">
+        <div class="form-group mb-3">
+          <div class="password-input-group">
+            <input type="password" id="lockScreenPasswordInput" class="form-input lock-password-input" placeholder="Enter Password" required />
+            <button type="button" class="toggle-password-btn" data-target="lockScreenPasswordInput" tabindex="-1">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+          </div>
+        </div>
+        
+        <div id="lockScreenError" class="lock-error-badge hidden"></div>
+
+        <button type="submit" id="btnUnlockApp" class="btn btn-brown" style="width: 100%; padding: 0.75rem; margin-top: 0.75rem; font-weight: 700;">
+          Unlock App
+        </button>
+      </form>
+    </div>
   </div>
 
   <!-- Firebase SDK for Automatic Cloud Sync -->
