@@ -450,6 +450,14 @@ body {
   vertical-align: middle;
 }
 
+/* Ensure Date column and Action buttons never wrap to multiple lines */
+.passbook-table th:first-child,
+.passbook-table td:first-child,
+.passbook-table th:last-child,
+.passbook-table td:last-child {
+  white-space: nowrap;
+}
+
 .passbook-table tr:nth-child(even) { background-color: #faf7f2; }
 .passbook-table tr:hover { background-color: var(--bg-card-hover); }
 
