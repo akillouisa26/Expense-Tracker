@@ -598,14 +598,30 @@
         <td class="passbook-credit">${!isDebit ? '+' + formatMoney(amt) : '—'}</td>
         <td class="passbook-balance">${formatMoney(totalVaultBalance)}</td>
         <td>
-          <button class="btn btn-outline-brown btn-sm btn-edit-sav" data-sav-id="${entry.id}">
-            <i class="fa-solid fa-pen-to-square"></i> Edit
-          </button>
+          <div style="display: flex; gap: 0.35rem;">
+            <button class="btn btn-outline-brown btn-sm btn-edit-sav" data-sav-id="${entry.id}">
+              <i class="fa-solid fa-pen-to-square"></i> Edit
+            </button>
+            <button class="btn btn-outline-danger btn-sm btn-delete-sav" data-sav-id="${entry.id}">
+              <i class="fa-solid fa-trash"></i> Delete
+            </button>
+          </div>
         </td>
       `;
 
       tr.querySelector('.btn-edit-sav').addEventListener('click', () => {
         openSavingsModal(entry.type || (isDebit ? 'EXPENSE' : 'INCOME'), entry.id);
+      });
+
+      tr.querySelector('.btn-delete-sav').addEventListener('click', () => {
+        if (confirm('Are you sure you want to delete this savings entry?')) {
+          state.savingsVault = state.savingsVault.filter(s => s.id !== entry.id);
+          state.transactions = state.transactions.filter(t => t.id !== entry.id && t.id !== `tx_sav_${entry.id}`);
+          saveSavingsVaultToStorage();
+          saveTransactionsToStorage();
+          renderAll();
+          showToast('Savings entry deleted successfully!', 'info');
+        }
       });
 
       DOM.savingsPassbookBody.appendChild(tr);
@@ -835,15 +851,32 @@
           <td>${escapeHTML(t.note || '-')}</td>
           <td class="${amountClass}">${prefix}${formatMoney(t.amount)}</td>
           <td>
-            <button class="btn btn-outline-brown btn-sm btn-edit-tx" data-tx-id="${t.id}">
-              <i class="fa-solid fa-pen-to-square"></i> Edit
-            </button>
+            <div style="display: flex; gap: 0.35rem;">
+              <button class="btn btn-outline-brown btn-sm btn-edit-tx" data-tx-id="${t.id}">
+                <i class="fa-solid fa-pen-to-square"></i> Edit
+              </button>
+              <button class="btn btn-outline-danger btn-sm btn-delete-tx" data-tx-id="${t.id}">
+                <i class="fa-solid fa-trash"></i> Delete
+              </button>
+            </div>
           </td>
         `;
 
         tr.querySelector('.btn-edit-tx').addEventListener('click', () => {
           DOM.modalSegregationDetail.close();
           openTransactionModal(t.type, segId, t.id);
+        });
+
+        tr.querySelector('.btn-delete-tx').addEventListener('click', () => {
+          if (confirm('Are you sure you want to delete this transaction entry?')) {
+            state.transactions = state.transactions.filter(tx => tx.id !== t.id);
+            state.savingsVault = state.savingsVault.filter(s => s.id !== t.id && `tx_sav_${s.id}` !== t.id);
+            saveTransactionsToStorage();
+            saveSavingsVaultToStorage();
+            renderAll();
+            openSegregationDetailModal(segId);
+            showToast('Transaction entry deleted successfully!', 'info');
+          }
         });
 
         DOM.detailTransactionsTableBody.appendChild(tr);
