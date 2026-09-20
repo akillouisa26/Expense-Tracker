@@ -422,13 +422,14 @@ body {
 .bal-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
 .bal-amount { font-size: 1.4rem; font-weight: 800; color: var(--brown-primary); }
 
-.table-responsive { width: 100%; overflow-x: auto; }
+.table-responsive { width: 100%; overflow-x: hidden; overflow-y: visible; }
 
 .passbook-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.875rem;
+  font-size: 0.825rem;
 }
 
 .passbook-table th {
@@ -438,26 +439,28 @@ body {
   text-transform: uppercase;
   font-size: 0.75rem;
   letter-spacing: 0.04em;
-  padding: 0.65rem 0.6rem;
+  padding: 0.6rem 0.5rem;
   border-bottom: 2px solid var(--brown-primary);
   border-top: 1px solid var(--border-color);
 }
 
 .passbook-table td {
-  padding: 0.65rem 0.6rem;
-  font-size: 0.85rem;
+  padding: 0.6rem 0.5rem;
+  font-size: 0.825rem;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-main);
   vertical-align: middle;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
-/* Ensure Date column and Action buttons never wrap to multiple lines */
-.passbook-table th:first-child,
-.passbook-table td:first-child,
-.passbook-table th:last-child,
-.passbook-table td:last-child {
-  white-space: nowrap;
-}
+/* Explicit column width distributions for 6-column passbook table */
+.passbook-table th:nth-child(1), .passbook-table td:nth-child(1) { width: 15%; white-space: nowrap; }
+.passbook-table th:nth-child(2), .passbook-table td:nth-child(2) { width: 11%; text-align: center; }
+.passbook-table th:nth-child(3), .passbook-table td:nth-child(3) { width: 32%; word-break: break-word; }
+.passbook-table th:nth-child(4), .passbook-table td:nth-child(4) { width: 14%; text-align: right; }
+.passbook-table th:nth-child(5), .passbook-table td:nth-child(5) { width: 14%; text-align: right; }
+.passbook-table th:nth-child(6), .passbook-table td:nth-child(6) { width: 14%; text-align: center; }
 
 .passbook-table tr:nth-child(even) { background-color: #faf7f2; }
 .passbook-table tr:hover { background-color: var(--bg-card-hover); }
