@@ -203,25 +203,26 @@
     localStorage.removeItem('akil_tracker_transactions_v6');
     localStorage.removeItem('akil_tracker_savings_vault_v6');
 
-    // Load Transactions first
-    const savedTxs = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || 'null');
-    state.transactions = (savedTxs && Array.isArray(savedTxs)) ? savedTxs : [];
-
     // Load Segregations
     const savedSegs = JSON.parse(localStorage.getItem(STORAGE_KEYS.SEGREGATIONS) || 'null');
     if (savedSegs && Array.isArray(savedSegs)) {
-      // Remove auto-created default 'seg_savings' if it was unedited and has 0 fund and 0 transactions
-      state.segregations = savedSegs.filter(s => {
-        if (s.id === 'seg_savings' && (!s.allocatedFund || Number(s.allocatedFund) === 0)) {
-          const hasTxs = state.transactions.some(t => t.segregationId === 'seg_savings');
-          if (!hasTxs) return false;
-        }
-        return true;
-      });
+      state.segregations = savedSegs;
     } else {
       state.segregations = [];
       saveSegregationsToStorage();
     }
+
+    // Load Transactions
+    const savedTxs = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || 'null');
+    if (savedTxs && Array.isArray(savedTxs)) {
+      state.transactions = savedTxs;
+    } else {
+      state.transactions = [];
+      saveTransactionsToStorage();
+    }
+
+    // Purge any default/auto-created empty Savings category if it has 0 transactions & 0 allocation
+    purgeEmptyDefaultSavings();
 
     const savedNotes = JSON.parse(localStorage.getItem(STORAGE_KEYS.PERSONAL_NOTES) || 'null');
     if (savedNotes && Array.isArray(savedNotes)) {
@@ -260,6 +261,20 @@
         isProtectionEnabled: true
       };
     }
+  }
+
+  function purgeEmptyDefaultSavings() {
+    state.segregations = state.segregations.filter(seg => {
+      const isSavingsName = seg.name && seg.name.trim().toLowerCase() === 'savings';
+      if (!isSavingsName) return true;
+
+      const hasTransactions = state.transactions.some(t => t.segregationId === seg.id);
+      if (!hasTransactions && (Number(seg.allocatedFund) || 0) === 0) {
+        return false;
+      }
+      return true;
+    });
+    localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
   }
 
   function saveSegregationsToStorage() {
@@ -806,11 +821,7 @@
       .filter(t => t.segregationId === segId)
       .sort((a, b) => new Date(a.date) - new Date(b.date) || a._origIdx - b._origIdx);
 
-    const hasInitTx = chronological.some(t => 
-      t.id.startsWith('tx_create_') || 
-      t.id.startsWith('tx_init_') || 
-      (t.note && (t.note.includes('Created') || t.note.includes('Initial Allocation')))
-    );
+    const hasInitTx = chronological.some(t => t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation');
     let runningBal = hasInitTx ? 0 : (Number(seg.allocatedFund) || 0);
     const balanceMap = new Map();
     chronological.forEach(t => {
@@ -1152,18 +1163,26 @@
       
       if (type === 'EXPENSE' && !isSavingsCat && note.toLowerCase().includes('savings')) {
         let savingsCat = state.segregations.find(s => s.name.toLowerCase().includes('savings'));
-        if (savingsCat) {
-          state.transactions.push({
-            id: 'tx_auto_sav_' + Date.now(),
-            segregationId: savingsCat.id,
-            type: 'INCOME',
-            amount: amount,
-            date: date,
-            monthKey: getCurrentMonthKey(new Date(date)),
-            note: `Savings from ${targetSeg ? targetSeg.name : 'Other Category'}`
-          });
-          showToast(`Auto-credited ₹${amount} into Savings category!`, 'info');
+        if (!savingsCat) {
+          savingsCat = {
+            id: 'seg_savings_' + Date.now(),
+            name: 'Savings',
+            allocatedFund: 0
+          };
+          state.segregations.push(savingsCat);
+          saveSegregationsToStorage();
         }
+
+        state.transactions.push({
+          id: 'tx_auto_sav_' + Date.now(),
+          segregationId: savingsCat.id,
+          type: 'INCOME',
+          amount: amount,
+          date: date,
+          monthKey: getCurrentMonthKey(new Date(date)),
+          note: `Savings from ${targetSeg ? targetSeg.name : 'Other Category'}`
+        });
+        showToast(`Auto-created Savings category & credited ₹${amount}!`, 'info');
       }
     }
 
@@ -1440,6 +1459,7 @@
             state.personalNotes = cloudData.personalNotes;
             localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
           }
+          purgeEmptyDefaultSavings();
           renderAll();
         }
       }, (err) => {
