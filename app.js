@@ -225,15 +225,7 @@
     if (savedNotes && Array.isArray(savedNotes)) {
       state.personalNotes = savedNotes;
     } else {
-      state.personalNotes = [
-        {
-          id: 'note_1',
-          title: 'Buy New Shoes',
-          amount: 1500,
-          isCompleted: false,
-          date: new Date().toISOString().split('T')[0]
-        }
-      ];
+      state.personalNotes = [];
       saveNotesToStorage();
     }
 
