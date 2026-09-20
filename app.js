@@ -1423,16 +1423,24 @@
       // Perform immediate sync to push current state to Cloud Firestore
       syncToFirebase();
 
-      // Realtime Sync User Document for Akil
-      const syncDocId = state.securitySettings.userId || 'akil_main_ledger';
+      // Realtime Sync Document (unified doc key 'akil_main_ledger' so computer & phone sync instantly)
+      const syncDocId = 'akil_main_ledger';
       const userDocRef = doc(state.db, 'users', syncDocId);
       onSnapshot(userDocRef, (docSnap) => {
         if (docSnap.exists()) {
           const cloudData = docSnap.data();
-          if (cloudData.segregations) state.segregations = cloudData.segregations;
-          if (cloudData.transactions) state.transactions = cloudData.transactions;
-          if (cloudData.savingsVault) state.savingsVault = cloudData.savingsVault;
-          if (cloudData.personalNotes) state.personalNotes = cloudData.personalNotes;
+          if (cloudData.segregations && Array.isArray(cloudData.segregations)) {
+            state.segregations = cloudData.segregations;
+            localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
+          }
+          if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
+            state.transactions = cloudData.transactions;
+            localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
+          }
+          if (cloudData.personalNotes && Array.isArray(cloudData.personalNotes)) {
+            state.personalNotes = cloudData.personalNotes;
+            localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
+          }
           renderAll();
         }
       }, (err) => {
@@ -1455,12 +1463,11 @@
     if (!state.isFirebaseOnline || !state.db) return;
     try {
       const { doc, setDoc } = window.FirebaseSDK;
-      const syncDocId = state.securitySettings.userId || 'akil_main_ledger';
+      const syncDocId = 'akil_main_ledger';
       const userDocRef = doc(state.db, 'users', syncDocId);
       setDoc(userDocRef, {
         segregations: state.segregations,
         transactions: state.transactions,
-        savingsVault: state.savingsVault,
         personalNotes: state.personalNotes,
         lastUpdated: new Date().toISOString()
       }, { merge: true });
@@ -1471,6 +1478,13 @@
 
   function checkAppLockStatus() {
     updateBrandTitle();
+    const isSessionUnlocked = sessionStorage.getItem('akil_tracker_session_unlocked') === 'true';
+    if (isSessionUnlocked) {
+      state.isAppUnlocked = true;
+      if (DOM.lockScreenView) DOM.lockScreenView.classList.add('hidden');
+      return;
+    }
+
     if (state.securitySettings.isProtectionEnabled && state.securitySettings.password) {
       state.isAppUnlocked = false;
       if (DOM.lockScreenView) {
@@ -1491,6 +1505,7 @@
   }
 
   function lockApp() {
+    sessionStorage.removeItem('akil_tracker_session_unlocked');
     if (!state.securitySettings.password) {
       showToast('Please set a password in Settings first before locking the app.', 'warning');
       switchTab('settings');
@@ -1517,6 +1532,7 @@
     const validPass = (state.securitySettings && state.securitySettings.password) ? String(state.securitySettings.password).trim() : '1234';
     if (entered === validPass || entered === '1234') {
       state.isAppUnlocked = true;
+      sessionStorage.setItem('akil_tracker_session_unlocked', 'true');
       if (DOM.lockScreenView) DOM.lockScreenView.classList.add('hidden');
       if (DOM.lockScreenPasswordInput) DOM.lockScreenPasswordInput.value = '';
       if (DOM.lockScreenError) DOM.lockScreenError.classList.add('hidden');
