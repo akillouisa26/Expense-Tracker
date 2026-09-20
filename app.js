@@ -1143,6 +1143,16 @@
         tx.date = date;
         tx.note = note;
         tx.monthKey = getCurrentMonthKey(new Date(date));
+
+        // If editing initial creation transaction, sync category allocatedFund too!
+        const isInitTx = tx.id.startsWith('tx_create_') || tx.id.startsWith('tx_init_') || tx.note === 'New Category Created' || tx.note === 'Initial Allocation';
+        if (isInitTx) {
+          const targetSeg = state.segregations.find(s => s.id === segId);
+          if (targetSeg) {
+            targetSeg.allocatedFund = amount;
+            saveSegregationsToStorage();
+          }
+        }
       }
     } else {
       // NEW TRANSACTION MODE
@@ -1189,6 +1199,9 @@
     saveTransactionsToStorage();
     DOM.modalTransaction.close();
     renderAll();
+    if (state.activeDetailSegregationId) {
+      openSegregationDetailModal(state.activeDetailSegregationId);
+    }
     showToast('Entry saved!', 'success');
   }
 
@@ -1208,6 +1221,13 @@
       if (seg) {
         seg.name = name;
         seg.allocatedFund = allocatedFund;
+
+        // Also update initial creation transaction amount so transaction history matches allocated fund!
+        const initTx = state.transactions.find(t => t.segregationId === id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
+        if (initTx) {
+          initTx.amount = allocatedFund;
+          saveTransactionsToStorage();
+        }
       }
     } else {
       const newSegId = 'seg_' + Date.now();
@@ -1245,7 +1265,10 @@
     saveSegregationsToStorage();
     DOM.modalSegregation.close();
     renderAll();
-    showToast('Category created & reflected in Transaction History!', 'success');
+    if (state.activeDetailSegregationId) {
+      openSegregationDetailModal(state.activeDetailSegregationId);
+    }
+    showToast('Category updated successfully!', 'success');
   }
 
   function deleteTransaction(txId) {
