@@ -203,34 +203,32 @@
     localStorage.removeItem('akil_tracker_transactions_v6');
     localStorage.removeItem('akil_tracker_savings_vault_v6');
 
-    state.segregations = [];
-    state.savingsVault = [];
-    state.transactions = [];
+    // Load Segregations
+    const savedSegs = JSON.parse(localStorage.getItem(STORAGE_KEYS.SEGREGATIONS) || 'null');
+    if (savedSegs && Array.isArray(savedSegs) && savedSegs.length > 0) {
+      state.segregations = savedSegs;
+    } else {
+      state.segregations = [
+        { id: 'seg_savings', name: 'Savings', allocatedFund: 0 }
+      ];
+      saveSegregationsToStorage();
+    }
 
-    saveSegregationsToStorage();
-    saveSavingsVaultToStorage();
-    saveTransactionsToStorage();
+    // Ensure a Savings category always exists
+    let savingsSeg = state.segregations.find(s => s.name.toLowerCase().includes('savings'));
+    if (!savingsSeg) {
+      savingsSeg = { id: 'seg_savings_' + Date.now(), name: 'Savings', allocatedFund: 0 };
+      state.segregations.push(savingsSeg);
+      saveSegregationsToStorage();
+    }
 
-    // Auto-sync any Savings Vault entry into Transaction History
-    const savingsSeg = state.segregations.find(s => s.name.toLowerCase().includes('savings')) || state.segregations[0];
-    if (savingsSeg && state.savingsVault.length > 0) {
-      let txUpdated = false;
-      state.savingsVault.forEach(vaultItem => {
-        const exists = state.transactions.some(t => t.id === vaultItem.id || (t.amount === vaultItem.amount && t.note === vaultItem.particulars));
-        if (!exists) {
-          state.transactions.push({
-            id: vaultItem.id || ('tx_sav_' + Date.now()),
-            segregationId: savingsSeg.id,
-            type: 'INCOME',
-            amount: vaultItem.amount,
-            date: vaultItem.date || new Date().toISOString().split('T')[0],
-            monthKey: getCurrentMonthKey(new Date(vaultItem.date || Date.now())),
-            note: vaultItem.particulars || 'Savings Deposit'
-          });
-          txUpdated = true;
-        }
-      });
-      if (txUpdated) saveTransactionsToStorage();
+    // Load Transactions
+    const savedTxs = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || 'null');
+    if (savedTxs && Array.isArray(savedTxs)) {
+      state.transactions = savedTxs;
+    } else {
+      state.transactions = [];
+      saveTransactionsToStorage();
     }
 
     const savedNotes = JSON.parse(localStorage.getItem(STORAGE_KEYS.PERSONAL_NOTES) || 'null');
@@ -473,14 +471,12 @@
     // Update Header Title
     if (DOM.topPageTitle) {
       if (tabName === 'dashboard') DOM.topPageTitle.textContent = 'Dashboard';
-      else if (tabName === 'savings') DOM.topPageTitle.textContent = 'Savings Vault';
       else if (tabName === 'ledger') DOM.topPageTitle.textContent = 'Transaction History';
       else if (tabName === 'notes') DOM.topPageTitle.textContent = 'My Notes';
       else if (tabName === 'settings') DOM.topPageTitle.textContent = 'Settings';
     }
 
     if (tabName === 'dashboard') renderNotebookDashboard();
-    else if (tabName === 'savings') renderSavingsVaultTab();
     else if (tabName === 'ledger') renderBankStatementLedger();
     else if (tabName === 'notes') renderPersonalNotesTab();
     else if (tabName === 'settings') renderSettingsTab();
@@ -516,7 +512,6 @@
   function renderAll() {
     updateBrandTitle();
     renderNotebookDashboard();
-    renderSavingsVaultTab();
     renderBankStatementLedger();
     renderPersonalNotesTab();
     renderSettingsTab();
@@ -529,8 +524,8 @@
 
     DOM.notebookSegregationsList.innerHTML = '';
 
-    // EXCLUDE SAVINGS CATEGORY FROM DASHBOARD
-    const dashboardSegs = state.segregations.filter(seg => !seg.name.toLowerCase().includes('savings'));
+    // Include all categories on Dashboard (including Savings)
+    const dashboardSegs = state.segregations;
 
     if (dashboardSegs.length === 0) {
       DOM.notebookSegregationsList.innerHTML = `
@@ -821,18 +816,29 @@
     DOM.detailTotalSpent.textContent = formatMoney(metrics.spent);
     DOM.detailRemainingFund.textContent = formatMoney(metrics.remaining);
 
-    // History for this Specific Category ONLY (Newest on Top)
-    const segTxs = state.transactions
+    // Calculate running balance in chronological order (oldest to newest)
+    const chronological = state.transactions
       .map((t, idx) => ({ ...t, _origIdx: idx }))
       .filter(t => t.segregationId === segId)
-      .sort((a, b) => new Date(b.date) - new Date(a.date) || b._origIdx - a._origIdx);
+      .sort((a, b) => new Date(a.date) - new Date(b.date) || a._origIdx - b._origIdx);
+
+    let runningBal = Number(seg.allocatedFund) || 0;
+    const balanceMap = new Map();
+    chronological.forEach(t => {
+      if (t.type === 'EXPENSE') runningBal -= Number(t.amount);
+      else runningBal += Number(t.amount);
+      balanceMap.set(t.id, runningBal);
+    });
+
+    // History for this Specific Category ONLY (Newest on Top)
+    const segTxs = [...chronological].sort((a, b) => new Date(b.date) - new Date(a.date) || b._origIdx - a._origIdx);
 
     DOM.detailTransactionsTableBody.innerHTML = '';
 
     if (segTxs.length === 0) {
       DOM.detailTransactionsTableBody.innerHTML = `
         <tr>
-          <td colspan="5" class="text-center text-muted" style="padding: 1.5rem;">
+          <td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">
             No transactions logged for ${escapeHTML(seg.name)} yet.
           </td>
         </tr>
@@ -844,12 +850,14 @@
         const typeBadge = isExpense ? '<span class="badge badge-debit">Debit</span>' : '<span class="badge badge-credit">Credit</span>';
         const amountClass = isExpense ? 'passbook-debit' : 'passbook-credit';
         const prefix = isExpense ? '-' : '+';
+        const rowBalance = balanceMap.get(t.id) || 0;
 
         tr.innerHTML = `
           <td>${t.date}</td>
           <td>${typeBadge}</td>
           <td>${escapeHTML(t.note || '-')}</td>
           <td class="${amountClass}">${prefix}${formatMoney(t.amount)}</td>
+          <td class="passbook-balance">${formatMoney(rowBalance)}</td>
           <td>
             <div style="display: flex; gap: 0.35rem;">
               <button class="btn btn-outline-brown btn-sm btn-edit-tx" data-tx-id="${t.id}">
@@ -888,13 +896,9 @@
 
   function populateSegregationDropdowns(type = 'EXPENSE') {
     let list = state.segregations;
-    if (type === 'EXPENSE') {
-      // Exclude Savings category from Debit/Spend Money dropdown
-      list = list.filter(s => !s.name.toLowerCase().includes('savings'));
-    }
     let options = list.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
     if (list.length === 0) {
-      options = `<option value="">No available debitable categories (Add a category first)</option>`;
+      options = `<option value="">No available categories (Add a category first)</option>`;
     }
     DOM.txSegregationSelect.innerHTML = options;
 
@@ -1153,19 +1157,28 @@
       };
       state.transactions.push(txObj);
 
-      // AUTO-SYNC SAVINGS FOR CREDIT
+      // AUTO-TRANSFER TO SAVINGS CATEGORY IF EXPENSE CONTAINS 'SAVINGS' IN DESCRIPTION
       const targetSeg = state.segregations.find(s => s.id === segId);
-      if (targetSeg && targetSeg.name.toLowerCase().includes('savings')) {
-        if (type === 'INCOME') {
-          state.savingsVault.push({
-            id: 'sav_' + Date.now(),
-            date,
-            particulars: `Top-Up to Savings (${note})`,
-            amount,
-            type: 'INCOME'
-          });
-          saveSavingsVaultToStorage();
+      const isSavingsCat = targetSeg && targetSeg.name.toLowerCase().includes('savings');
+      
+      if (type === 'EXPENSE' && !isSavingsCat && note.toLowerCase().includes('savings')) {
+        let savingsCat = state.segregations.find(s => s.name.toLowerCase().includes('savings'));
+        if (!savingsCat) {
+          savingsCat = { id: 'seg_savings_' + Date.now(), name: 'Savings', allocatedFund: 0 };
+          state.segregations.push(savingsCat);
+          saveSegregationsToStorage();
         }
+        
+        state.transactions.push({
+          id: 'tx_auto_sav_' + Date.now(),
+          segregationId: savingsCat.id,
+          type: 'INCOME',
+          amount: amount,
+          date: date,
+          monthKey: getCurrentMonthKey(new Date(date)),
+          note: `Savings from ${targetSeg ? targetSeg.name : 'Other Category'}`
+        });
+        showToast(`Auto-credited ₹${amount} into Savings category!`, 'info');
       }
     }
 
