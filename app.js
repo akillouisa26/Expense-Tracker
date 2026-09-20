@@ -486,17 +486,35 @@
     if (!seg) return { allocated: 0, spent: 0, topUps: 0, remaining: 0 };
 
     const segTxs = state.transactions.filter(t => t.segregationId === segId);
+
+    // Identify initial allocation transaction if present
+    const initTx = segTxs.find(t =>
+      t.id.startsWith('tx_create_') ||
+      t.id.startsWith('tx_init_') ||
+      t.note === 'New Category Created' ||
+      t.note === 'Initial Allocation' ||
+      (t.type === 'INCOME' && segTxs.indexOf(t) === 0)
+    );
+
+    const allocated = initTx ? Number(initTx.amount) : (Number(seg.allocatedFund) || 0);
+
+    // Keep seg.allocatedFund synchronized with initTx amount
+    if (initTx && Number(seg.allocatedFund) !== Number(initTx.amount)) {
+      seg.allocatedFund = Number(initTx.amount);
+      saveSegregationsToStorage();
+    }
+
     const spent = segTxs.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + Number(t.amount), 0);
-    
-    // Top-ups are additional INCOME transactions after initial category allocation
+
+    // Top-ups are additional INCOME transactions besides the initial allocation transaction
     const topUps = segTxs
-      .filter(t => t.type === 'INCOME' && !t.id.startsWith('tx_create_') && !t.id.startsWith('tx_init_') && t.note !== 'New Category Created' && t.note !== 'Initial Allocation')
+      .filter(t => t.type === 'INCOME' && t !== initTx)
       .reduce((sum, t) => sum + Number(t.amount), 0);
 
-    const effectiveAllocated = Number(seg.allocatedFund) + topUps;
+    const effectiveAllocated = allocated + topUps;
     const remaining = effectiveAllocated - spent;
 
-    return { allocated: Number(seg.allocatedFund), spent, topUps, remaining };
+    return { allocated, spent, topUps, remaining };
   }
 
   function updateBrandTitle() {
@@ -839,8 +857,14 @@
       .filter(t => t.segregationId === segId)
       .sort((a, b) => new Date(a.date) - new Date(b.date) || a._origIdx - b._origIdx);
 
-    const hasInitTx = chronological.some(t => t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation');
-    let runningBal = hasInitTx ? 0 : (Number(seg.allocatedFund) || 0);
+    const initTx = chronological.find(t =>
+      t.id.startsWith('tx_create_') ||
+      t.id.startsWith('tx_init_') ||
+      t.note === 'New Category Created' ||
+      t.note === 'Initial Allocation' ||
+      (t.type === 'INCOME' && chronological.indexOf(t) === 0)
+    );
+    let runningBal = initTx ? 0 : (Number(seg.allocatedFund) || 0);
     const balanceMap = new Map();
     chronological.forEach(t => {
       if (t.type === 'EXPENSE') runningBal -= Number(t.amount);
