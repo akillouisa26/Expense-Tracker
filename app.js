@@ -205,20 +205,10 @@
 
     // Load Segregations
     const savedSegs = JSON.parse(localStorage.getItem(STORAGE_KEYS.SEGREGATIONS) || 'null');
-    if (savedSegs && Array.isArray(savedSegs) && savedSegs.length > 0) {
+    if (savedSegs && Array.isArray(savedSegs)) {
       state.segregations = savedSegs;
     } else {
-      state.segregations = [
-        { id: 'seg_savings', name: 'Savings', allocatedFund: 0 }
-      ];
-      saveSegregationsToStorage();
-    }
-
-    // Ensure a Savings category always exists
-    let savingsSeg = state.segregations.find(s => s.name.toLowerCase().includes('savings'));
-    if (!savingsSeg) {
-      savingsSeg = { id: 'seg_savings_' + Date.now(), name: 'Savings', allocatedFund: 0 };
-      state.segregations.push(savingsSeg);
+      state.segregations = [];
       saveSegregationsToStorage();
     }
 
@@ -1163,22 +1153,18 @@
       
       if (type === 'EXPENSE' && !isSavingsCat && note.toLowerCase().includes('savings')) {
         let savingsCat = state.segregations.find(s => s.name.toLowerCase().includes('savings'));
-        if (!savingsCat) {
-          savingsCat = { id: 'seg_savings_' + Date.now(), name: 'Savings', allocatedFund: 0 };
-          state.segregations.push(savingsCat);
-          saveSegregationsToStorage();
+        if (savingsCat) {
+          state.transactions.push({
+            id: 'tx_auto_sav_' + Date.now(),
+            segregationId: savingsCat.id,
+            type: 'INCOME',
+            amount: amount,
+            date: date,
+            monthKey: getCurrentMonthKey(new Date(date)),
+            note: `Savings from ${targetSeg ? targetSeg.name : 'Other Category'}`
+          });
+          showToast(`Auto-credited ₹${amount} into Savings category!`, 'info');
         }
-        
-        state.transactions.push({
-          id: 'tx_auto_sav_' + Date.now(),
-          segregationId: savingsCat.id,
-          type: 'INCOME',
-          amount: amount,
-          date: date,
-          monthKey: getCurrentMonthKey(new Date(date)),
-          note: `Savings from ${targetSeg ? targetSeg.name : 'Other Category'}`
-        });
-        showToast(`Auto-credited ₹${amount} into Savings category!`, 'info');
       }
     }
 
