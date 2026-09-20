@@ -455,13 +455,21 @@ body {
   overflow-wrap: break-word;
 }
 
-/* Explicit column width distributions for 6-column passbook table */
-.passbook-table th:nth-child(1), .passbook-table td:nth-child(1) { width: 14%; white-space: nowrap; }
-.passbook-table th:nth-child(2), .passbook-table td:nth-child(2) { width: 12%; text-align: center; white-space: nowrap; }
-.passbook-table th:nth-child(3), .passbook-table td:nth-child(3) { width: 36%; word-break: break-word; }
-.passbook-table th:nth-child(4), .passbook-table td:nth-child(4) { width: 13%; text-align: right; white-space: nowrap; }
-.passbook-table th:nth-child(5), .passbook-table td:nth-child(5) { width: 13%; text-align: right; white-space: nowrap; }
-.passbook-table th:nth-child(6), .passbook-table td:nth-child(6) { width: 12%; text-align: center; white-space: nowrap; }
+/* Column Width Distributions for Category Detail Modal (6 columns) */
+#modalSegregationDetail .passbook-table th:nth-child(1), #modalSegregationDetail .passbook-table td:nth-child(1) { width: 14%; white-space: nowrap; }
+#modalSegregationDetail .passbook-table th:nth-child(2), #modalSegregationDetail .passbook-table td:nth-child(2) { width: 12%; text-align: center; white-space: nowrap; }
+#modalSegregationDetail .passbook-table th:nth-child(3), #modalSegregationDetail .passbook-table td:nth-child(3) { width: 36%; word-break: break-word; }
+#modalSegregationDetail .passbook-table th:nth-child(4), #modalSegregationDetail .passbook-table td:nth-child(4) { width: 13%; text-align: right; white-space: nowrap; }
+#modalSegregationDetail .passbook-table th:nth-child(5), #modalSegregationDetail .passbook-table td:nth-child(5) { width: 13%; text-align: right; white-space: nowrap; }
+#modalSegregationDetail .passbook-table th:nth-child(6), #modalSegregationDetail .passbook-table td:nth-child(6) { width: 12%; text-align: center; white-space: nowrap; }
+
+/* Column Width Distributions for Overall Transaction History Tab (6 columns) */
+#tab-ledger .passbook-table th:nth-child(1), #tab-ledger .passbook-table td:nth-child(1) { width: 13%; white-space: nowrap; }
+#tab-ledger .passbook-table th:nth-child(2), #tab-ledger .passbook-table td:nth-child(2) { width: 38%; word-break: break-word; text-align: left; }
+#tab-ledger .passbook-table th:nth-child(3), #tab-ledger .passbook-table td:nth-child(3) { width: 13%; text-align: right; white-space: nowrap; }
+#tab-ledger .passbook-table th:nth-child(4), #tab-ledger .passbook-table td:nth-child(4) { width: 13%; text-align: right; white-space: nowrap; }
+#tab-ledger .passbook-table th:nth-child(5), #tab-ledger .passbook-table td:nth-child(5) { width: 13%; text-align: right; white-space: nowrap; }
+#tab-ledger .passbook-table th:nth-child(6), #tab-ledger .passbook-table td:nth-child(6) { width: 10%; text-align: center; white-space: nowrap; }
 
 .passbook-table tr:nth-child(even) { background-color: #faf7f2; }
 .passbook-table tr:hover { background-color: var(--bg-card-hover); }

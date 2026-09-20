@@ -686,7 +686,25 @@
         <td class="passbook-debit">${isExpense ? '-' + formatMoney(t.amount) : '—'}</td>
         <td class="passbook-credit">${!isExpense ? '+' + formatMoney(t.amount) : '—'}</td>
         <td class="passbook-balance">${formatMoney(rowBalance)}</td>
+        <td>
+          <div style="display: flex; gap: 0.35rem; justify-content: center;">
+            <button class="btn btn-outline-brown btn-sm btn-edit-tx" data-tx-id="${t.id}" title="Edit Transaction" style="padding: 0.3rem 0.5rem; font-size: 0.8rem;">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-sm btn-delete-tx" data-tx-id="${t.id}" title="Delete Transaction" style="padding: 0.3rem 0.5rem; font-size: 0.8rem;">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </td>
       `;
+
+      tr.querySelector('.btn-edit-tx').addEventListener('click', () => {
+        openTransactionModal(t.type, t.segregationId, t.id);
+      });
+
+      tr.querySelector('.btn-delete-tx').addEventListener('click', () => {
+        deleteTransaction(t.id);
+      });
 
       DOM.bankStatementBody.appendChild(tr);
     });
