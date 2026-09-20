@@ -438,16 +438,17 @@ body {
   text-transform: uppercase;
   font-size: 0.75rem;
   letter-spacing: 0.04em;
-  padding: 0.85rem 1rem;
+  padding: 0.65rem 0.6rem;
   border-bottom: 2px solid var(--brown-primary);
   border-top: 1px solid var(--border-color);
 }
 
 .passbook-table td {
-  padding: 0.85rem 1rem;
+  padding: 0.65rem 0.6rem;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-main);
   vertical-align: middle;
+  font-size: 0.825rem;
 }
 
 /* Ensure Date column and Action buttons never wrap to multiple lines */
@@ -675,7 +676,16 @@ body {
   overflow: hidden;
 }
 
-.modal-content.large-modal { max-width: 750px; }
+.modal-dialog:has(.large-modal),
+.modal-dialog.large-modal {
+  max-width: 880px;
+  width: 92vw;
+}
+
+.modal-content.large-modal {
+  max-width: 880px;
+  width: 100%;
+}
 
 .modal-header {
   display: flex;

@@ -203,22 +203,24 @@
     localStorage.removeItem('akil_tracker_transactions_v6');
     localStorage.removeItem('akil_tracker_savings_vault_v6');
 
+    // Load Transactions first
+    const savedTxs = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || 'null');
+    state.transactions = (savedTxs && Array.isArray(savedTxs)) ? savedTxs : [];
+
     // Load Segregations
     const savedSegs = JSON.parse(localStorage.getItem(STORAGE_KEYS.SEGREGATIONS) || 'null');
     if (savedSegs && Array.isArray(savedSegs)) {
-      state.segregations = savedSegs;
+      // Remove auto-created default 'seg_savings' if it was unedited and has 0 fund and 0 transactions
+      state.segregations = savedSegs.filter(s => {
+        if (s.id === 'seg_savings' && (!s.allocatedFund || Number(s.allocatedFund) === 0)) {
+          const hasTxs = state.transactions.some(t => t.segregationId === 'seg_savings');
+          if (!hasTxs) return false;
+        }
+        return true;
+      });
     } else {
       state.segregations = [];
       saveSegregationsToStorage();
-    }
-
-    // Load Transactions
-    const savedTxs = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || 'null');
-    if (savedTxs && Array.isArray(savedTxs)) {
-      state.transactions = savedTxs;
-    } else {
-      state.transactions = [];
-      saveTransactionsToStorage();
     }
 
     const savedNotes = JSON.parse(localStorage.getItem(STORAGE_KEYS.PERSONAL_NOTES) || 'null');
@@ -804,7 +806,12 @@
       .filter(t => t.segregationId === segId)
       .sort((a, b) => new Date(a.date) - new Date(b.date) || a._origIdx - b._origIdx);
 
-    let runningBal = Number(seg.allocatedFund) || 0;
+    const hasInitTx = chronological.some(t => 
+      t.id.startsWith('tx_create_') || 
+      t.id.startsWith('tx_init_') || 
+      (t.note && (t.note.includes('Created') || t.note.includes('Initial Allocation')))
+    );
+    let runningBal = hasInitTx ? 0 : (Number(seg.allocatedFund) || 0);
     const balanceMap = new Map();
     chronological.forEach(t => {
       if (t.type === 'EXPENSE') runningBal -= Number(t.amount);
