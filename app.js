@@ -37,7 +37,8 @@
       password: '',
       isProtectionEnabled: false
     },
-    isAppUnlocked: false
+    isAppUnlocked: false,
+    isInitialCloudSyncDone: false
   };
 
   // DOM Elements
@@ -1489,7 +1490,79 @@
     }
   }
 
+  let isFirebaseInitialized = false;
+
+  function mergeCloudAndLocalState(cloudData) {
+    let stateChanged = false;
+
+    // 1. Merge Segregations
+    if (cloudData.segregations && Array.isArray(cloudData.segregations)) {
+      const segMap = new Map();
+      state.segregations.forEach(s => segMap.set(s.id, s));
+      cloudData.segregations.forEach(s => {
+        if (!segMap.has(s.id)) {
+          segMap.set(s.id, s);
+          stateChanged = true;
+        } else {
+          const existing = segMap.get(s.id);
+          segMap.set(s.id, { ...existing, ...s });
+        }
+      });
+      state.segregations = Array.from(segMap.values());
+      localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
+    } else if (state.segregations.length > 0) {
+      stateChanged = true;
+    }
+
+    // 2. Merge Transactions
+    if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
+      const txMap = new Map();
+      state.transactions.forEach(t => txMap.set(t.id, t));
+      cloudData.transactions.forEach(t => {
+        if (!txMap.has(t.id)) {
+          txMap.set(t.id, t);
+          stateChanged = true;
+        } else {
+          const existing = txMap.get(t.id);
+          txMap.set(t.id, { ...existing, ...t });
+        }
+      });
+      state.transactions = Array.from(txMap.values());
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
+    } else if (state.transactions.length > 0) {
+      stateChanged = true;
+    }
+
+    // 3. Merge Personal Notes
+    if (cloudData.personalNotes && Array.isArray(cloudData.personalNotes)) {
+      const noteMap = new Map();
+      state.personalNotes.forEach(n => noteMap.set(n.id, n));
+      cloudData.personalNotes.forEach(n => {
+        if (!noteMap.has(n.id)) {
+          noteMap.set(n.id, n);
+          stateChanged = true;
+        } else {
+          const existing = noteMap.get(n.id);
+          noteMap.set(n.id, { ...existing, ...n });
+        }
+      });
+      state.personalNotes = Array.from(noteMap.values());
+      localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
+    } else if (state.personalNotes.length > 0) {
+      stateChanged = true;
+    }
+
+    purgeEmptyDefaultSavings();
+    renderAll();
+
+    // Push unified merged state back to cloud if local state had items cloud didn't have yet
+    if (stateChanged) {
+      syncToFirebase();
+    }
+  }
+
   function initFirebaseIfAvailable() {
+    if (isFirebaseInitialized) return;
     if (!state.firebaseConfig || !window.FirebaseSDK) {
       state.isFirebaseOnline = false;
       if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
@@ -1501,10 +1574,8 @@
       const app = initializeApp(state.firebaseConfig);
       state.db = getFirestore(app);
       state.isFirebaseOnline = true;
+      isFirebaseInitialized = true;
       if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot online';
-
-      // Perform immediate sync to push current state to Cloud Firestore
-      syncToFirebase();
 
       // Realtime Sync Document (unified doc key 'akil_main_ledger' so computer & phone sync instantly)
       const syncDocId = 'akil_main_ledger';
@@ -1512,23 +1583,34 @@
       onSnapshot(userDocRef, (docSnap) => {
         if (docSnap.exists()) {
           const cloudData = docSnap.data();
-          if (cloudData.segregations && Array.isArray(cloudData.segregations)) {
-            state.segregations = cloudData.segregations;
-            localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
+          if (!state.isInitialCloudSyncDone) {
+            mergeCloudAndLocalState(cloudData);
+            state.isInitialCloudSyncDone = true;
+          } else {
+            if (cloudData.segregations && Array.isArray(cloudData.segregations)) {
+              state.segregations = cloudData.segregations;
+              localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
+            }
+            if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
+              state.transactions = cloudData.transactions;
+              localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
+            }
+            if (cloudData.personalNotes && Array.isArray(cloudData.personalNotes)) {
+              state.personalNotes = cloudData.personalNotes;
+              localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
+            }
+            purgeEmptyDefaultSavings();
+            renderAll();
           }
-          if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
-            state.transactions = cloudData.transactions;
-            localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
-          }
-          if (cloudData.personalNotes && Array.isArray(cloudData.personalNotes)) {
-            state.personalNotes = cloudData.personalNotes;
-            localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
-          }
-          purgeEmptyDefaultSavings();
-          renderAll();
+        } else {
+          // Document does not exist in Cloud Firestore yet: push current local state to cloud!
+          state.isInitialCloudSyncDone = true;
+          syncToFirebase();
         }
       }, (err) => {
         console.warn('Cloud Sync listener warning:', err);
+        state.isFirebaseOnline = false;
+        if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
       });
     } catch (err) {
       console.error('Firebase Initialization Error:', err);
@@ -1540,8 +1622,15 @@
   window.addEventListener('firebase-sdk-ready', () => {
     initFirebaseIfAvailable();
   });
-
-
+  window.addEventListener('load', () => {
+    initFirebaseIfAvailable();
+  });
+  const sdkCheckInterval = setInterval(() => {
+    if (window.FirebaseSDK) {
+      initFirebaseIfAvailable();
+      clearInterval(sdkCheckInterval);
+    }
+  }, 500);
 
   function syncToFirebase() {
     if (!state.isFirebaseOnline || !state.db) return;
@@ -1554,7 +1643,20 @@
         transactions: state.transactions,
         personalNotes: state.personalNotes,
         lastUpdated: new Date().toISOString()
-      }, { merge: true });
+      }, { merge: true })
+      .then(() => {
+        state.isFirebaseOnline = true;
+        if (DOM.cloudSyncBadge) {
+          DOM.cloudSyncBadge.className = 'status-dot online';
+          DOM.cloudSyncBadge.title = 'Live synced to Cloud Firestore at ' + new Date().toLocaleTimeString();
+        }
+      })
+      .catch((err) => {
+        console.error('Firebase Sync Write Error:', err);
+        state.isFirebaseOnline = false;
+        if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
+        showToast('Cloud Sync write error: ' + (err.message || 'Permission denied'), 'warning');
+      });
     } catch (err) {
       console.error('Firebase Sync Error:', err);
     }
