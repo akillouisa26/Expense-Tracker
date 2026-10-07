@@ -64,13 +64,17 @@
         <h2 id="topPageTitle" class="top-page-title">Dashboard</h2>
 
         <div class="top-right-actions">
-          <!-- LIVE WEATHER WIDGET -->
+          <!-- LIVE WEATHER WIDGET BADGE -->
           <div id="weatherWidget" class="weather-badge cursor-pointer" title="Click to Generate Live Weather Data via OpenWeatherMap API" style="cursor: pointer;">
             <img id="weatherIcon" src="" alt="Weather" style="width: 24px; height: 24px; display: none;" />
             <i id="weatherFallbackIcon" class="fa-solid fa-cloud-sun"></i>
             <span id="weatherTemp">Loading...</span>
-            <span class="badge-generate-tag" style="font-size: 0.7rem; background: var(--brown-primary); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 4px;"><i class="fa-solid fa-bolt"></i> Generate Data</span>
           </div>
+
+          <!-- EXPLICIT WEATHER DATA GENERATOR BUTTON -->
+          <button id="btnOpenWeatherGenerator" class="btn btn-outline-brown btn-sm" style="font-weight: 700; display: inline-flex; align-items: center; gap: 0.4rem;" title="Open Live Weather Generator">
+            <i class="fa-solid fa-bolt" style="color: #d97706;"></i> Generate Data
+          </button>
 
           <!-- ADD ENTRY BUTTON (VISIBLE ONLY ON DASHBOARD PAGE) -->
           <button id="btnTopPlusAction" class="btn btn-plus-topright">

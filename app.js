@@ -193,6 +193,7 @@
     
     // Top Right Corner Weather Badge & Generator
     DOM.weatherWidget = document.getElementById('weatherWidget');
+    DOM.btnOpenWeatherGenerator = document.getElementById('btnOpenWeatherGenerator');
     DOM.modalWeatherGenerator = document.getElementById('modalWeatherGenerator');
     DOM.weatherCityInput = document.getElementById('weatherCityInput');
     DOM.btnGenerateWeatherData = document.getElementById('btnGenerateWeatherData');
@@ -393,13 +394,16 @@
 
   function setupEventListeners() {
     // Weather Badge & Live Weather Data Generator Trigger
-    if (DOM.weatherWidget && DOM.modalWeatherGenerator) {
-      DOM.weatherWidget.addEventListener('click', () => {
+    const openWeatherModalHandler = () => {
+      if (DOM.modalWeatherGenerator) {
         DOM.modalWeatherGenerator.showModal();
         const cityVal = DOM.weatherCityInput ? DOM.weatherCityInput.value.trim() : 'Chennai';
         fetchLiveWeather(cityVal, true);
-      });
-    }
+      }
+    };
+
+    if (DOM.weatherWidget) DOM.weatherWidget.addEventListener('click', openWeatherModalHandler);
+    if (DOM.btnOpenWeatherGenerator) DOM.btnOpenWeatherGenerator.addEventListener('click', openWeatherModalHandler);
 
     if (DOM.btnGenerateWeatherData) {
       DOM.btnGenerateWeatherData.addEventListener('click', (e) => {
