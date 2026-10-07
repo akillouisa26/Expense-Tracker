@@ -64,6 +64,13 @@
         <h2 id="topPageTitle" class="top-page-title">Dashboard</h2>
 
         <div class="top-right-actions">
+          <!-- LIVE WEATHER WIDGET -->
+          <div id="weatherWidget" class="weather-badge" title="Live Weather via OpenWeatherMap API">
+            <img id="weatherIcon" src="" alt="Weather" style="width: 24px; height: 24px; display: none;" />
+            <i id="weatherFallbackIcon" class="fa-solid fa-cloud-sun"></i>
+            <span id="weatherTemp">Loading...</span>
+          </div>
+
           <!-- ADD ENTRY BUTTON (VISIBLE ONLY ON DASHBOARD PAGE) -->
           <button id="btnTopPlusAction" class="btn btn-plus-topright">
             <i class="fa-solid fa-plus"></i> Add Entry

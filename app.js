@@ -52,7 +52,42 @@
     initFirebaseIfAvailable();
     renderAll();
     checkAppLockStatus();
+    fetchLiveWeather();
   });
+
+  function fetchLiveWeather() {
+    const apiKey = '336302a1d6c10fd275cb4bdb71bb22a1';
+    const city = 'Chennai';
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${apiKey}`;
+
+    fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error('Weather API error');
+        return res.json();
+      })
+      .then(data => {
+        const temp = Math.round(data.main.temp);
+        const condition = data.weather && data.weather[0] ? data.weather[0].main : '';
+        const iconCode = data.weather && data.weather[0] ? data.weather[0].icon : '';
+        const tempEl = document.getElementById('weatherTemp');
+        const iconEl = document.getElementById('weatherIcon');
+        const fallbackIcon = document.getElementById('weatherFallbackIcon');
+
+        if (tempEl) {
+          tempEl.textContent = `${data.name} ${temp}°C`;
+        }
+        if (iconEl && iconCode) {
+          iconEl.src = `https://openweathermap.org/img/wn/${iconCode}.png`;
+          iconEl.style.display = 'inline-block';
+          if (fallbackIcon) fallbackIcon.style.display = 'none';
+        }
+      })
+      .catch(err => {
+        console.warn('Weather Widget Fetch Warning:', err);
+        const tempEl = document.getElementById('weatherTemp');
+        if (tempEl) tempEl.textContent = 'Chennai 30°C';
+      });
+  }
 
   function getCurrentMonthKey(dateObj = new Date()) {
     const year = dateObj.getFullYear();
