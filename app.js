@@ -55,20 +55,34 @@
     fetchLiveWeather();
   });
 
-  function fetchLiveWeather() {
+  function fetchLiveWeather(cityName = 'Chennai', isUserGenerated = false) {
     const apiKey = '336302a1d6c10fd275cb4bdb71bb22a1';
-    const city = 'Chennai';
-    const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${apiKey}`;
+    const city = (cityName && cityName.trim()) ? cityName.trim() : 'Chennai';
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=metric&appid=${apiKey}`;
 
-    fetch(url)
+    const jsonOutput = document.getElementById('weatherJsonOutput');
+    const btnGenerate = document.getElementById('btnGenerateWeatherData');
+
+    if (isUserGenerated && btnGenerate) {
+      btnGenerate.disabled = true;
+      btnGenerate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
+    }
+    if (isUserGenerated && jsonOutput) {
+      jsonOutput.textContent = `Fetching live JSON data for "${city}" from OpenWeather API...`;
+    }
+
+    return fetch(url)
       .then(res => {
-        if (!res.ok) throw new Error('Weather API error');
+        if (!res.ok) throw new Error(`Weather API Error: ${res.status} ${res.statusText}`);
         return res.json();
       })
       .then(data => {
         const temp = Math.round(data.main.temp);
         const condition = data.weather && data.weather[0] ? data.weather[0].main : '';
+        const description = data.weather && data.weather[0] ? data.weather[0].description : '';
         const iconCode = data.weather && data.weather[0] ? data.weather[0].icon : '';
+
+        // Update top header badge
         const tempEl = document.getElementById('weatherTemp');
         const iconEl = document.getElementById('weatherIcon');
         const fallbackIcon = document.getElementById('weatherFallbackIcon');
@@ -81,11 +95,49 @@
           iconEl.style.display = 'inline-block';
           if (fallbackIcon) fallbackIcon.style.display = 'none';
         }
+
+        // Update Modal JSON output & metrics cards
+        if (jsonOutput) {
+          jsonOutput.textContent = JSON.stringify(data, null, 2);
+        }
+
+        const cardCity = document.getElementById('weatherCardCity');
+        const cardTemp = document.getElementById('weatherCardTemp');
+        const cardCondition = document.getElementById('weatherCardCondition');
+        const cardDetails = document.getElementById('weatherCardDetails');
+
+        if (cardCity) cardCity.textContent = `${data.name}, ${data.sys ? data.sys.country : ''}`;
+        if (cardTemp) cardTemp.textContent = `${temp}°C (Feels ${Math.round(data.main.feels_like)}°C)`;
+        if (cardCondition) cardCondition.textContent = description ? description.charAt(0).toUpperCase() + description.slice(1) : condition;
+        if (cardDetails) cardDetails.textContent = `${data.main.humidity}% Hum | ${data.wind ? data.wind.speed : 0} m/s Wind`;
+
+        if (isUserGenerated) {
+          showToast(`Live weather data generated for "${data.name}" successfully!`, 'success');
+        }
+
+        return data;
       })
       .catch(err => {
         console.warn('Weather Widget Fetch Warning:', err);
         const tempEl = document.getElementById('weatherTemp');
-        if (tempEl) tempEl.textContent = 'Chennai 30°C';
+        if (tempEl && !isUserGenerated) tempEl.textContent = 'Chennai 30°C';
+
+        if (jsonOutput && isUserGenerated) {
+          jsonOutput.textContent = JSON.stringify({
+            error: true,
+            message: err.message || 'Failed to fetch weather data for the specified city.',
+            cityRequested: city
+          }, null, 2);
+        }
+        if (isUserGenerated) {
+          showToast(`City "${city}" not found or API request failed.`, 'danger');
+        }
+      })
+      .finally(() => {
+        if (isUserGenerated && btnGenerate) {
+          btnGenerate.disabled = false;
+          btnGenerate.innerHTML = '<i class="fa-solid fa-bolt"></i> Generate Data';
+        }
       });
   }
 
@@ -139,6 +191,13 @@
     DOM.btnCloudSync = document.getElementById('btnCloudSync');
     DOM.cloudSyncBadge = document.getElementById('cloudSyncBadge');
     
+    // Top Right Corner Weather Badge & Generator
+    DOM.weatherWidget = document.getElementById('weatherWidget');
+    DOM.modalWeatherGenerator = document.getElementById('modalWeatherGenerator');
+    DOM.weatherCityInput = document.getElementById('weatherCityInput');
+    DOM.btnGenerateWeatherData = document.getElementById('btnGenerateWeatherData');
+    DOM.weatherJsonOutput = document.getElementById('weatherJsonOutput');
+
     // Top Right Corner Plus Button & Title
     DOM.brandTitle = document.getElementById('brandTitle');
     DOM.topPageTitle = document.getElementById('topPageTitle');
@@ -292,7 +351,6 @@
       }
     } else {
       state.securitySettings = {
-        userId: 'Akil',
         password: '1234',
         isProtectionEnabled: true
       };
@@ -334,6 +392,32 @@
   }
 
   function setupEventListeners() {
+    // Weather Badge & Live Weather Data Generator Trigger
+    if (DOM.weatherWidget && DOM.modalWeatherGenerator) {
+      DOM.weatherWidget.addEventListener('click', () => {
+        DOM.modalWeatherGenerator.showModal();
+        const cityVal = DOM.weatherCityInput ? DOM.weatherCityInput.value.trim() : 'Chennai';
+        fetchLiveWeather(cityVal, true);
+      });
+    }
+
+    if (DOM.btnGenerateWeatherData) {
+      DOM.btnGenerateWeatherData.addEventListener('click', (e) => {
+        e.preventDefault();
+        const cityVal = DOM.weatherCityInput ? DOM.weatherCityInput.value.trim() : 'Chennai';
+        fetchLiveWeather(cityVal, true);
+      });
+    }
+
+    if (DOM.weatherCityInput) {
+      DOM.weatherCityInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (DOM.btnGenerateWeatherData) DOM.btnGenerateWeatherData.click();
+        }
+      });
+    }
+
     // Top Right Plus Button
     DOM.btnTopPlusAction.addEventListener('click', () => DOM.modalPlusAction.showModal());
 

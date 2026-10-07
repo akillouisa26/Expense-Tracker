@@ -65,10 +65,11 @@
 
         <div class="top-right-actions">
           <!-- LIVE WEATHER WIDGET -->
-          <div id="weatherWidget" class="weather-badge" title="Live Weather via OpenWeatherMap API">
+          <div id="weatherWidget" class="weather-badge cursor-pointer" title="Click to Generate Live Weather Data via OpenWeatherMap API" style="cursor: pointer;">
             <img id="weatherIcon" src="" alt="Weather" style="width: 24px; height: 24px; display: none;" />
             <i id="weatherFallbackIcon" class="fa-solid fa-cloud-sun"></i>
             <span id="weatherTemp">Loading...</span>
+            <span class="badge-generate-tag" style="font-size: 0.7rem; background: var(--brown-primary); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 4px;"><i class="fa-solid fa-bolt"></i> Generate Data</span>
           </div>
 
           <!-- ADD ENTRY BUTTON (VISIBLE ONLY ON DASHBOARD PAGE) -->
@@ -487,6 +488,61 @@
       </div>
     </dialog>
 
+
+    <!-- MODAL: LIVE WEATHER DATA GENERATOR (OPENWEATHER API) -->
+    <dialog id="modalWeatherGenerator" class="modal-dialog">
+      <div class="modal-content large-modal">
+        <div class="modal-header">
+          <h2 class="modal-title"><i class="fa-solid fa-cloud-sun" style="color: #d97706;"></i> Live Weather Data Generator</h2>
+          <button class="btn-close-modal" data-close-modal="modalWeatherGenerator">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Enter a city name (e.g., <strong>Chennai</strong>, <strong>Mumbai</strong>, <strong>London</strong>, <strong>Tokyo</strong>) and click <strong>Generate Data</strong> to fetch live JSON payload directly from the OpenWeatherMap API.
+          </p>
+
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
+            <input type="text" id="weatherCityInput" class="form-input" placeholder="Enter city name (e.g. Chennai)" value="Chennai" style="flex: 1; min-width: 200px;" />
+            <button id="btnGenerateWeatherData" class="btn btn-brown" style="white-space: nowrap;">
+              <i class="fa-solid fa-bolt"></i> Generate Data
+            </button>
+          </div>
+
+          <!-- Quick Info Cards -->
+          <div id="weatherMetricsContainer" class="segregation-detail-metrics" style="margin-bottom: 1rem;">
+            <div class="detail-metric-card">
+              <span class="label">Location</span>
+              <h3 id="weatherCardCity">Chennai, IN</h3>
+            </div>
+            <div class="detail-metric-card">
+              <span class="label">Temperature</span>
+              <h3 id="weatherCardTemp">--°C</h3>
+            </div>
+            <div class="detail-metric-card success">
+              <span class="label">Condition</span>
+              <h3 id="weatherCardCondition">--</h3>
+            </div>
+            <div class="detail-metric-card">
+              <span class="label">Humidity / Wind</span>
+              <h3 id="weatherCardDetails" style="font-size: 1.05rem;">--</h3>
+            </div>
+          </div>
+
+          <!-- JSON Output View -->
+          <div style="margin-top: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+              <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--brown-primary); margin: 0;">
+                <i class="fa-solid fa-code"></i> Live JSON API Response
+              </h4>
+              <span id="weatherApiEndpointBadge" style="font-size: 0.75rem; background: var(--bg-card-hover); padding: 0.25rem 0.5rem; border-radius: 4px; color: var(--text-muted); font-family: monospace;">
+                https://api.openweathermap.org/data/2.5/weather
+              </span>
+            </div>
+            <pre id="weatherJsonOutput" style="background: #1e1e1e; color: #4ec9b0; padding: 1.25rem; border-radius: 8px; max-height: 320px; overflow: auto; font-family: 'Consolas', 'Fira Code', monospace; font-size: 0.85rem; border: 1.5px solid var(--border-color); line-height: 1.4;">Click "Generate Data" to retrieve live weather JSON response...</pre>
+          </div>
+        </div>
+      </div>
+    </dialog>
 
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toastContainer" class="toast-container"></div>
