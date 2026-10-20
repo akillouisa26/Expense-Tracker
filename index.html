@@ -501,7 +501,7 @@
         </div>
         <div class="modal-body">
           <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem;">
-            Select a base currency (e.g., <strong>USD</strong>, <strong>INR</strong>, <strong>EUR</strong>, <strong>GBP</strong>, <strong>AED</strong>) and click <strong>Generate Data</strong> to retrieve real-time exchange rates and JSON data directly from ExchangeRate-API (v6).
+            Select a base currency (e.g., <strong>USD</strong>, <strong>INR</strong>, <strong>EUR</strong>, <strong>GBP</strong>, <strong>AED</strong>) to retrieve real-time conversion rates directly from ExchangeRate-API (v6).
           </p>
 
           <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
@@ -518,7 +518,7 @@
               <option value="JPY">JPY - Japanese Yen</option>
             </select>
             <button id="btnGenerateCurrencyData" class="btn btn-brown" style="white-space: nowrap;">
-              <i class="fa-solid fa-bolt"></i> Generate Data
+              <i class="fa-solid fa-arrows-rotate"></i> Update Rates
             </button>
           </div>
 
@@ -568,19 +568,6 @@
                 $0.00
               </div>
             </div>
-          </div>
-
-          <!-- JSON Output View -->
-          <div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-              <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--brown-primary); margin: 0;">
-                <i class="fa-solid fa-code"></i> Live JSON API Response (ExchangeRate-API v6)
-              </h4>
-              <span id="currencyApiEndpointBadge" style="font-size: 0.75rem; background: var(--bg-card-hover); padding: 0.25rem 0.5rem; border-radius: 4px; color: var(--text-muted); font-family: monospace;">
-                https://v6.exchangerate-api.com/v6/35e0256d31c7ef56973c8994/latest/USD
-              </span>
-            </div>
-            <pre id="currencyJsonOutput" style="background: #1e1e1e; color: #4ec9b0; padding: 1.25rem; border-radius: 8px; max-height: 300px; overflow: auto; font-family: 'Consolas', 'Fira Code', monospace; font-size: 0.85rem; border: 1.5px solid var(--border-color); line-height: 1.4;">Click "Generate Data" to retrieve live exchange rates JSON response...</pre>
           </div>
         </div>
       </div>

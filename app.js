@@ -72,7 +72,7 @@
 
     if (isUserGenerated && btnGenerate) {
       btnGenerate.disabled = true;
-      btnGenerate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
+      btnGenerate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
     }
     if (isUserGenerated && jsonOutput) {
       jsonOutput.textContent = `Fetching live JSON data for base "${baseCurrency}" from ExchangeRate-API...`;
@@ -136,7 +136,7 @@
         if (cardGbp) cardGbp.textContent = `₹${gbpInr.toFixed(2)}`;
         if (cardAed) cardAed.textContent = `₹${aedInr.toFixed(2)}`;
 
-        // Update JSON Output viewer
+        // Update JSON Output viewer if element is present
         if (jsonOutput) {
           jsonOutput.textContent = JSON.stringify(data, null, 2);
         }
@@ -145,7 +145,7 @@
         updateQuickConverter();
 
         if (isUserGenerated) {
-          showToast(`Live exchange rates generated for ${baseCurrency}!`, 'success');
+          showToast(`Live exchange rates updated for ${baseCurrency}!`, 'success');
         }
 
         return data;
@@ -169,7 +169,7 @@
       .finally(() => {
         if (isUserGenerated && btnGenerate) {
           btnGenerate.disabled = false;
-          btnGenerate.innerHTML = '<i class="fa-solid fa-bolt"></i> Generate Data';
+          btnGenerate.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Update Rates';
         }
       });
   }
@@ -1131,7 +1131,9 @@
 
         tr.querySelector('.btn-delete-tx').addEventListener('click', () => {
           if (confirm('Are you sure you want to delete this transaction entry?')) {
-            state.transactions = state.transactions.filter(tx => tx.id !== t.id);
+            const tx = state.transactions.find(item => item.id === t.id);
+            const linkedId = tx ? tx.linkedTransferId : null;
+            state.transactions = state.transactions.filter(item => item.id !== t.id && (!linkedId || item.id !== linkedId));
             state.savingsVault = state.savingsVault.filter(s => s.id !== t.id && `tx_sav_${s.id}` !== t.id);
             saveTransactionsToStorage();
             saveSavingsVaultToStorage();
@@ -1348,6 +1350,47 @@
     if (DOM.modalAlert) DOM.modalAlert.showModal();
   }
 
+  function findDestinationCategory(note, currentSegId) {
+    if (!note || !note.trim()) return null;
+    const cleanNote = note.trim().toLowerCase();
+
+    // 1. Exact match with another category name (case-insensitive)
+    let matched = state.segregations.find(s => 
+      s.id !== currentSegId && s.name.trim().toLowerCase() === cleanNote
+    );
+    if (matched) return matched;
+
+    // 2. Whole word match within the note (e.g. "To Amma", "Amma fund", "for Makeup")
+    matched = state.segregations.find(s => {
+      if (s.id === currentSegId) return false;
+      const sName = s.name.trim();
+      if (sName.length < 2) return false;
+      const escaped = sName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(^|[\\s.,!?;:\\-_])${escaped}($|[\\s.,!?;:\\-_])`, 'i');
+      return regex.test(cleanNote);
+    });
+    if (matched) return matched;
+
+    // 3. Fallback: If note contains 'savings' and no 'Savings' category exists yet, create it
+    if (cleanNote.includes('savings')) {
+      let savingsCat = state.segregations.find(s => s.name.trim().toLowerCase() === 'savings');
+      if (!savingsCat) {
+        savingsCat = {
+          id: 'seg_savings_' + Date.now(),
+          name: 'Savings',
+          allocatedFund: 0
+        };
+        state.segregations.push(savingsCat);
+        saveSegregationsToStorage();
+      }
+      if (savingsCat.id !== currentSegId) {
+        return savingsCat;
+      }
+    }
+
+    return null;
+  }
+
   function handleTransactionSubmit(e) {
     e.preventDefault();
     const txId = DOM.txIdInput.value;
@@ -1387,6 +1430,9 @@
       }
     }
 
+    const targetSeg = state.segregations.find(s => s.id === segId);
+    const destSeg = (type === 'EXPENSE') ? findDestinationCategory(note, segId) : null;
+
     if (txId) {
       // EDIT TRANSACTION MODE
       const tx = state.transactions.find(t => t.id === txId);
@@ -1401,17 +1447,51 @@
         // If editing initial creation transaction, sync category allocatedFund too!
         const isInitTx = tx.id.startsWith('tx_create_') || tx.id.startsWith('tx_init_') || tx.note === 'New Category Created' || tx.note === 'Initial Allocation';
         if (isInitTx) {
-          const targetSeg = state.segregations.find(s => s.id === segId);
           if (targetSeg) {
             targetSeg.allocatedFund = amount;
             saveSegregationsToStorage();
           }
         }
+
+        // Synchronize linked auto-transfer transaction
+        if (tx.linkedTransferId) {
+          const linkedTx = state.transactions.find(t => t.id === tx.linkedTransferId);
+          if (linkedTx) {
+            if (destSeg) {
+              linkedTx.segregationId = destSeg.id;
+              linkedTx.amount = amount;
+              linkedTx.date = date;
+              linkedTx.monthKey = getCurrentMonthKey(new Date(date));
+              linkedTx.note = `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`;
+            } else {
+              // Note no longer mentions a category, remove the paired transfer
+              state.transactions = state.transactions.filter(t => t.id !== tx.linkedTransferId);
+              delete tx.linkedTransferId;
+            }
+          }
+        } else if (type === 'EXPENSE' && destSeg) {
+          // Previously didn't have linked transfer, now has one
+          const autoTxId = 'tx_auto_' + Date.now();
+          tx.linkedTransferId = autoTxId;
+
+          state.transactions.push({
+            id: autoTxId,
+            segregationId: destSeg.id,
+            type: 'INCOME',
+            amount: amount,
+            date: date,
+            monthKey: getCurrentMonthKey(new Date(date)),
+            note: `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`,
+            linkedTransferId: tx.id
+          });
+          showToast(`₹${amount} automatically credited to ${destSeg.name}!`, 'info');
+        }
       }
     } else {
       // NEW TRANSACTION MODE
+      const newTxId = 'tx_' + Date.now();
       const txObj = {
-        id: 'tx_' + Date.now(),
+        id: newTxId,
         segregationId: segId,
         type,
         amount,
@@ -1419,35 +1499,27 @@
         monthKey: getCurrentMonthKey(new Date(date)),
         note
       };
-      state.transactions.push(txObj);
 
-      // AUTO-TRANSFER TO SAVINGS CATEGORY IF EXPENSE CONTAINS 'SAVINGS' IN DESCRIPTION
-      const targetSeg = state.segregations.find(s => s.id === segId);
-      const isSavingsCat = targetSeg && targetSeg.name.toLowerCase().includes('savings');
-      
-      if (type === 'EXPENSE' && !isSavingsCat && note.toLowerCase().includes('savings')) {
-        let savingsCat = state.segregations.find(s => s.name.toLowerCase().includes('savings'));
-        if (!savingsCat) {
-          savingsCat = {
-            id: 'seg_savings_' + Date.now(),
-            name: 'Savings',
-            allocatedFund: 0
-          };
-          state.segregations.push(savingsCat);
-          saveSegregationsToStorage();
-        }
+      // AUTO-TRANSFER: IF EXPENSE MENTIONS ANY OTHER CATEGORY IN DESCRIPTION
+      if (type === 'EXPENSE' && destSeg) {
+        const autoTxId = 'tx_auto_' + Date.now();
+        txObj.linkedTransferId = autoTxId;
 
-        state.transactions.push({
-          id: 'tx_auto_sav_' + Date.now(),
-          segregationId: savingsCat.id,
+        const autoTx = {
+          id: autoTxId,
+          segregationId: destSeg.id,
           type: 'INCOME',
           amount: amount,
           date: date,
           monthKey: getCurrentMonthKey(new Date(date)),
-          note: `Savings from ${targetSeg ? targetSeg.name : 'Other Category'}`
-        });
-        showToast(`Auto-created Savings category & credited ₹${amount}!`, 'info');
+          note: `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`,
+          linkedTransferId: newTxId
+        };
+        state.transactions.push(autoTx);
+        showToast(`Expense recorded & ₹${amount} automatically credited to ${destSeg.name}!`, 'success');
       }
+
+      state.transactions.push(txObj);
     }
 
     saveTransactionsToStorage();
@@ -1527,7 +1599,9 @@
 
   function deleteTransaction(txId) {
     if (!confirm('Delete this entry?')) return;
-    state.transactions = state.transactions.filter(t => t.id !== txId);
+    const tx = state.transactions.find(t => t.id === txId);
+    const linkedId = tx ? tx.linkedTransferId : null;
+    state.transactions = state.transactions.filter(t => t.id !== txId && (!linkedId || t.id !== linkedId));
     saveTransactionsToStorage();
     renderAll();
     showToast('Entry deleted', 'success');
