@@ -52,85 +52,118 @@
     initFirebaseIfAvailable();
     renderAll();
     checkAppLockStatus();
-    fetchLiveWeather();
+    fetchLiveExchangeRates('USD');
   });
 
-  function fetchLiveWeather(cityName = 'Chennai', isUserGenerated = false) {
-    const apiKey = '336302a1d6c10fd275cb4bdb71bb22a1';
-    const city = (cityName && cityName.trim()) ? cityName.trim() : 'Chennai';
-    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=metric&appid=${apiKey}`;
+  const EXCHANGE_API_KEY = '35e0256d31c7ef56973c8994';
+  let cachedExchangeRates = null;
 
-    const jsonOutput = document.getElementById('weatherJsonOutput');
-    const btnGenerate = document.getElementById('btnGenerateWeatherData');
+  function fetchLiveExchangeRates(base = 'USD', isUserGenerated = false) {
+    const baseCurrency = (base && base.trim()) ? base.trim().toUpperCase() : 'USD';
+    const url = `https://v6.exchangerate-api.com/v6/${EXCHANGE_API_KEY}/latest/${baseCurrency}`;
+
+    const jsonOutput = document.getElementById('currencyJsonOutput');
+    const btnGenerate = document.getElementById('btnGenerateCurrencyData');
+    const endpointBadge = document.getElementById('currencyApiEndpointBadge');
+
+    if (endpointBadge) {
+      endpointBadge.textContent = url;
+    }
 
     if (isUserGenerated && btnGenerate) {
       btnGenerate.disabled = true;
       btnGenerate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
     }
     if (isUserGenerated && jsonOutput) {
-      jsonOutput.textContent = `Fetching live JSON data for "${city}" from OpenWeather API...`;
+      jsonOutput.textContent = `Fetching live JSON data for base "${baseCurrency}" from ExchangeRate-API...`;
     }
 
     return fetch(url)
       .then(res => {
-        if (!res.ok) throw new Error(`Weather API Error: ${res.status} ${res.statusText}`);
+        if (!res.ok) throw new Error(`Currency API Error: ${res.status} ${res.statusText}`);
         return res.json();
       })
       .then(data => {
-        const temp = Math.round(data.main.temp);
-        const condition = data.weather && data.weather[0] ? data.weather[0].main : '';
-        const description = data.weather && data.weather[0] ? data.weather[0].description : '';
-        const iconCode = data.weather && data.weather[0] ? data.weather[0].icon : '';
-
-        // Update top header badge
-        const tempEl = document.getElementById('weatherTemp');
-        const iconEl = document.getElementById('weatherIcon');
-        const fallbackIcon = document.getElementById('weatherFallbackIcon');
-
-        if (tempEl) {
-          tempEl.textContent = `${data.name} ${temp}°C`;
-        }
-        if (iconEl && iconCode) {
-          iconEl.src = `https://openweathermap.org/img/wn/${iconCode}.png`;
-          iconEl.style.display = 'inline-block';
-          if (fallbackIcon) fallbackIcon.style.display = 'none';
+        if (data.result !== 'success') {
+          throw new Error(data['error-type'] || 'Failed to retrieve exchange rates');
         }
 
-        // Update Modal JSON output & metrics cards
+        const rates = data.conversion_rates || {};
+        cachedExchangeRates = { ...rates, [baseCurrency]: 1 };
+
+        // Update top header ticker badge
+        const tickerEl = document.getElementById('currencyTicker');
+        if (tickerEl) {
+          if (baseCurrency === 'USD' && rates['INR']) {
+            tickerEl.textContent = `1 USD = ₹${Number(rates['INR']).toFixed(2)}`;
+          } else if (baseCurrency === 'INR' && rates['USD']) {
+            const usdVal = (1 / rates['USD']).toFixed(2);
+            tickerEl.textContent = `1 USD = ₹${usdVal}`;
+          } else if (rates['INR']) {
+            tickerEl.textContent = `1 ${baseCurrency} = ₹${Number(rates['INR']).toFixed(2)}`;
+          } else {
+            tickerEl.textContent = `Forex: ${baseCurrency}`;
+          }
+        }
+
+        // Calculate INR equivalents for standard quick overview cards
+        let usdInr = 0, eurInr = 0, gbpInr = 0, aedInr = 0;
+        if (baseCurrency === 'INR') {
+          usdInr = rates['USD'] ? (1 / rates['USD']) : 95.06;
+          eurInr = rates['EUR'] ? (1 / rates['EUR']) : 106.63;
+          gbpInr = rates['GBP'] ? (1 / rates['GBP']) : 126.56;
+          aedInr = rates['AED'] ? (1 / rates['AED']) : 25.88;
+        } else if (baseCurrency === 'USD') {
+          usdInr = rates['INR'] || 95.06;
+          eurInr = (rates['INR'] || 95.06) / (rates['EUR'] || 0.89);
+          gbpInr = (rates['INR'] || 95.06) / (rates['GBP'] || 0.75);
+          aedInr = (rates['INR'] || 95.06) / (rates['AED'] || 3.67);
+        } else {
+          const inrPerBase = rates['INR'] || 1;
+          usdInr = inrPerBase / (rates['USD'] || 1);
+          eurInr = inrPerBase / (rates['EUR'] || 1);
+          gbpInr = inrPerBase / (rates['GBP'] || 1);
+          aedInr = inrPerBase / (rates['AED'] || 1);
+        }
+
+        const cardUsd = document.getElementById('rateCardUsdInr');
+        const cardEur = document.getElementById('rateCardEurInr');
+        const cardGbp = document.getElementById('rateCardGbpInr');
+        const cardAed = document.getElementById('rateCardAedInr');
+
+        if (cardUsd) cardUsd.textContent = `₹${usdInr.toFixed(2)}`;
+        if (cardEur) cardEur.textContent = `₹${eurInr.toFixed(2)}`;
+        if (cardGbp) cardGbp.textContent = `₹${gbpInr.toFixed(2)}`;
+        if (cardAed) cardAed.textContent = `₹${aedInr.toFixed(2)}`;
+
+        // Update JSON Output viewer
         if (jsonOutput) {
           jsonOutput.textContent = JSON.stringify(data, null, 2);
         }
 
-        const cardCity = document.getElementById('weatherCardCity');
-        const cardTemp = document.getElementById('weatherCardTemp');
-        const cardCondition = document.getElementById('weatherCardCondition');
-        const cardDetails = document.getElementById('weatherCardDetails');
-
-        if (cardCity) cardCity.textContent = `${data.name}, ${data.sys ? data.sys.country : ''}`;
-        if (cardTemp) cardTemp.textContent = `${temp}°C (Feels ${Math.round(data.main.feels_like)}°C)`;
-        if (cardCondition) cardCondition.textContent = description ? description.charAt(0).toUpperCase() + description.slice(1) : condition;
-        if (cardDetails) cardDetails.textContent = `${data.main.humidity}% Hum | ${data.wind ? data.wind.speed : 0} m/s Wind`;
+        // Update quick currency converter
+        updateQuickConverter();
 
         if (isUserGenerated) {
-          showToast(`Live weather data generated for "${data.name}" successfully!`, 'success');
+          showToast(`Live exchange rates generated for ${baseCurrency}!`, 'success');
         }
 
         return data;
       })
       .catch(err => {
-        console.warn('Weather Widget Fetch Warning:', err);
-        const tempEl = document.getElementById('weatherTemp');
-        if (tempEl && !isUserGenerated) tempEl.textContent = 'Chennai 30°C';
+        console.warn('ExchangeRate API Fetch Warning:', err);
+        const tickerEl = document.getElementById('currencyTicker');
+        if (tickerEl && !isUserGenerated) tickerEl.textContent = '1 USD = ₹95.06';
 
         if (jsonOutput && isUserGenerated) {
           jsonOutput.textContent = JSON.stringify({
             error: true,
-            message: err.message || 'Failed to fetch weather data for the specified city.',
-            cityRequested: city
+            message: err.message || 'Failed to fetch exchange rates for requested base currency.',
+            baseRequested: baseCurrency
           }, null, 2);
         }
         if (isUserGenerated) {
-          showToast(`City "${city}" not found or API request failed.`, 'danger');
+          showToast(`Failed to retrieve rates: ${err.message}`, 'danger');
         }
       })
       .finally(() => {
@@ -139,6 +172,53 @@
           btnGenerate.innerHTML = '<i class="fa-solid fa-bolt"></i> Generate Data';
         }
       });
+  }
+
+  function updateQuickConverter() {
+    const amountInput = document.getElementById('converterAmount');
+    const fromSelect = document.getElementById('converterFromCurrency');
+    const toSelect = document.getElementById('converterToCurrency');
+    const resultEl = document.getElementById('converterResult');
+
+    if (!amountInput || !fromSelect || !toSelect || !resultEl) return;
+
+    const amount = parseFloat(amountInput.value) || 0;
+    const from = fromSelect.value;
+    const to = toSelect.value;
+
+    if (from === to) {
+      resultEl.textContent = `${getCurrencySymbol(to)} ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return;
+    }
+
+    const fallbackToUSD = {
+      USD: 1,
+      INR: 0.01052,
+      EUR: 1.09,
+      GBP: 1.30,
+      AED: 0.272
+    };
+
+    let converted = 0;
+    if (cachedExchangeRates && cachedExchangeRates[from] && cachedExchangeRates[to]) {
+      converted = (amount / cachedExchangeRates[from]) * cachedExchangeRates[to];
+    } else {
+      const amountInUSD = amount * (fallbackToUSD[from] || 1);
+      converted = amountInUSD / (fallbackToUSD[to] || 1);
+    }
+
+    resultEl.textContent = `${getCurrencySymbol(to)} ${converted.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  function getCurrencySymbol(code) {
+    switch (code) {
+      case 'INR': return '₹';
+      case 'USD': return '$';
+      case 'EUR': return '€';
+      case 'GBP': return '£';
+      case 'AED': return 'AED';
+      default: return code;
+    }
   }
 
   function getCurrentMonthKey(dateObj = new Date()) {
@@ -191,13 +271,16 @@
     DOM.btnCloudSync = document.getElementById('btnCloudSync');
     DOM.cloudSyncBadge = document.getElementById('cloudSyncBadge');
     
-    // Top Right Corner Weather Badge & Generator
-    DOM.weatherWidget = document.getElementById('weatherWidget');
-    DOM.btnOpenWeatherGenerator = document.getElementById('btnOpenWeatherGenerator');
-    DOM.modalWeatherGenerator = document.getElementById('modalWeatherGenerator');
-    DOM.weatherCityInput = document.getElementById('weatherCityInput');
-    DOM.btnGenerateWeatherData = document.getElementById('btnGenerateWeatherData');
-    DOM.weatherJsonOutput = document.getElementById('weatherJsonOutput');
+    // Top Right Corner Currency Badge & Generator
+    DOM.currencyWidget = document.getElementById('currencyWidget');
+    DOM.btnOpenCurrencyGenerator = document.getElementById('btnOpenCurrencyGenerator');
+    DOM.modalCurrencyGenerator = document.getElementById('modalCurrencyGenerator');
+    DOM.currencyBaseSelect = document.getElementById('currencyBaseSelect');
+    DOM.btnGenerateCurrencyData = document.getElementById('btnGenerateCurrencyData');
+    DOM.currencyJsonOutput = document.getElementById('currencyJsonOutput');
+    DOM.converterAmount = document.getElementById('converterAmount');
+    DOM.converterFromCurrency = document.getElementById('converterFromCurrency');
+    DOM.converterToCurrency = document.getElementById('converterToCurrency');
 
     // Top Right Corner Plus Button & Title
     DOM.brandTitle = document.getElementById('brandTitle');
@@ -393,34 +476,39 @@
   }
 
   function setupEventListeners() {
-    // Weather Badge & Live Weather Data Generator Trigger
-    const openWeatherModalHandler = () => {
-      if (DOM.modalWeatherGenerator) {
-        DOM.modalWeatherGenerator.showModal();
-        const cityVal = DOM.weatherCityInput ? DOM.weatherCityInput.value.trim() : 'Chennai';
-        fetchLiveWeather(cityVal, true);
+    // Currency Badge & Live Forex Data Generator Trigger
+    const openCurrencyModalHandler = () => {
+      if (DOM.modalCurrencyGenerator) {
+        DOM.modalCurrencyGenerator.showModal();
+        const baseVal = DOM.currencyBaseSelect ? DOM.currencyBaseSelect.value : 'USD';
+        fetchLiveExchangeRates(baseVal, true);
       }
     };
 
-    if (DOM.weatherWidget) DOM.weatherWidget.addEventListener('click', openWeatherModalHandler);
-    if (DOM.btnOpenWeatherGenerator) DOM.btnOpenWeatherGenerator.addEventListener('click', openWeatherModalHandler);
+    if (DOM.currencyWidget) DOM.currencyWidget.addEventListener('click', openCurrencyModalHandler);
+    if (DOM.btnOpenCurrencyGenerator) DOM.btnOpenCurrencyGenerator.addEventListener('click', openCurrencyModalHandler);
 
-    if (DOM.btnGenerateWeatherData) {
-      DOM.btnGenerateWeatherData.addEventListener('click', (e) => {
+    if (DOM.btnGenerateCurrencyData) {
+      DOM.btnGenerateCurrencyData.addEventListener('click', (e) => {
         e.preventDefault();
-        const cityVal = DOM.weatherCityInput ? DOM.weatherCityInput.value.trim() : 'Chennai';
-        fetchLiveWeather(cityVal, true);
+        const baseVal = DOM.currencyBaseSelect ? DOM.currencyBaseSelect.value : 'USD';
+        fetchLiveExchangeRates(baseVal, true);
       });
     }
 
-    if (DOM.weatherCityInput) {
-      DOM.weatherCityInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (DOM.btnGenerateWeatherData) DOM.btnGenerateWeatherData.click();
-        }
+    if (DOM.currencyBaseSelect) {
+      DOM.currencyBaseSelect.addEventListener('change', () => {
+        const baseVal = DOM.currencyBaseSelect.value;
+        fetchLiveExchangeRates(baseVal, true);
       });
     }
+
+    // Quick Currency Converter Live Updates
+    ['input', 'change'].forEach(evtName => {
+      if (DOM.converterAmount) DOM.converterAmount.addEventListener(evtName, updateQuickConverter);
+      if (DOM.converterFromCurrency) DOM.converterFromCurrency.addEventListener(evtName, updateQuickConverter);
+      if (DOM.converterToCurrency) DOM.converterToCurrency.addEventListener(evtName, updateQuickConverter);
+    });
 
     // Top Right Plus Button
     DOM.btnTopPlusAction.addEventListener('click', () => DOM.modalPlusAction.showModal());
