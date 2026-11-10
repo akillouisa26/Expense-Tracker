@@ -20,6 +20,8 @@
     currency: '₹', // Fixed INR
     activeTab: 'dashboard',
     activeDetailSegregationId: null,
+    selectedExpenseMonth: getCurrentMonthKey(),
+    expenseGraphMode: 'CATEGORIES', // 'CATEGORIES' or 'PREVIOUS_MONTHS'
     segregations: [],
     transactions: [],
     savingsVault: [],
@@ -40,9 +42,7 @@
     isAppUnlocked: false,
     isInitialCloudSyncDone: false,
     charts: {
-      dashboardMonthly: null,
-      analyticsMonthly: null,
-      analyticsCategory: null
+      singleExpense: null
     }
   };
 
@@ -135,28 +135,19 @@
     DOM.btnGoToNotes = document.getElementById('btnGoToNotes');
     DOM.dashboardRemindersList = document.getElementById('dashboardRemindersList');
 
-    // Dashboard Monthly Chart & Stats
-    DOM.btnDashboardToAnalytics = document.getElementById('btnDashboardToAnalytics');
-    DOM.statThisMonthSpend = document.getElementById('statThisMonthSpend');
-    DOM.statMonthlyAverage = document.getElementById('statMonthlyAverage');
-    DOM.statPeakMonth = document.getElementById('statPeakMonth');
-    DOM.dashboardMonthlyChart = document.getElementById('dashboardMonthlyChart');
-    DOM.dashboardChartFallback = document.getElementById('dashboardChartFallback');
-
-    // Analytics Tab Elements
-    DOM.analyticsTotalExpense = document.getElementById('analyticsTotalExpense');
-    DOM.analyticsTotalTxCount = document.getElementById('analyticsTotalTxCount');
-    DOM.analyticsAverageMonthly = document.getElementById('analyticsAverageMonthly');
-    DOM.analyticsTopCategory = document.getElementById('analyticsTopCategory');
-    DOM.analyticsTopCategoryAmount = document.getElementById('analyticsTopCategoryAmount');
-    DOM.analyticsHighestMonth = document.getElementById('analyticsHighestMonth');
-    DOM.analyticsHighestMonthName = document.getElementById('analyticsHighestMonthName');
-    DOM.analyticsMonthlyChart = document.getElementById('analyticsMonthlyChart');
-    DOM.analyticsMonthlyFallback = document.getElementById('analyticsMonthlyFallback');
-    DOM.analyticsMonthFilter = document.getElementById('analyticsMonthFilter');
-    DOM.analyticsCategoryChart = document.getElementById('analyticsCategoryChart');
-    DOM.analyticsCategoryFallback = document.getElementById('analyticsCategoryFallback');
-    DOM.analyticsMonthlyTableBody = document.getElementById('analyticsMonthlyTableBody');
+    // Dashboard Monthly Expense Overview Card Elements
+    DOM.monthlyExpenseDashboardCard = document.getElementById('monthlyExpenseDashboardCard');
+    DOM.btnPrevExpenseMonth = document.getElementById('btnPrevExpenseMonth');
+    DOM.selectExpenseMonth = document.getElementById('selectExpenseMonth');
+    DOM.btnNextExpenseMonth = document.getElementById('btnNextExpenseMonth');
+    DOM.labelSelectedMonthExpense = document.getElementById('labelSelectedMonthExpense');
+    DOM.displayMonthTotalExpense = document.getElementById('displayMonthTotalExpense');
+    DOM.displayPrevMonthComparison = document.getElementById('displayPrevMonthComparison');
+    DOM.btnModeCategorySpend = document.getElementById('btnModeCategorySpend');
+    DOM.btnModePreviousMonths = document.getElementById('btnModePreviousMonths');
+    DOM.labelModeMonthName = document.getElementById('labelModeMonthName');
+    DOM.singleExpenseChart = document.getElementById('singleExpenseChart');
+    DOM.singleExpenseFallback = document.getElementById('singleExpenseFallback');
 
     // Savings Vault Tab & Actions
     DOM.savingsVaultTotalDisplay = document.getElementById('savingsVaultTotalDisplay');
@@ -429,15 +420,47 @@
     // PDF Download Button
     DOM.btnDownloadPDF.addEventListener('click', handleDownloadPDF);
 
-    // Reminders & Analytics Navigation
+    // Dashboard Reminders Navigation
     if (DOM.btnGoToNotes) {
       DOM.btnGoToNotes.addEventListener('click', () => switchTab('notes'));
     }
-    if (DOM.btnDashboardToAnalytics) {
-      DOM.btnDashboardToAnalytics.addEventListener('click', () => switchTab('analytics'));
+
+    // Monthly Expense Overview Controls
+    if (DOM.selectExpenseMonth) {
+      DOM.selectExpenseMonth.addEventListener('change', () => {
+        state.selectedExpenseMonth = DOM.selectExpenseMonth.value;
+        renderUnifiedExpenseSection();
+      });
     }
-    if (DOM.analyticsMonthFilter) {
-      DOM.analyticsMonthFilter.addEventListener('change', renderAnalyticsCategoryDonut);
+
+    if (DOM.btnPrevExpenseMonth) {
+      DOM.btnPrevExpenseMonth.addEventListener('click', () => {
+        navigateExpenseMonth(-1);
+      });
+    }
+
+    if (DOM.btnNextExpenseMonth) {
+      DOM.btnNextExpenseMonth.addEventListener('click', () => {
+        navigateExpenseMonth(1);
+      });
+    }
+
+    if (DOM.btnModeCategorySpend) {
+      DOM.btnModeCategorySpend.addEventListener('click', () => {
+        state.expenseGraphMode = 'CATEGORIES';
+        if (DOM.btnModeCategorySpend) DOM.btnModeCategorySpend.classList.add('active');
+        if (DOM.btnModePreviousMonths) DOM.btnModePreviousMonths.classList.remove('active');
+        renderUnifiedExpenseSection();
+      });
+    }
+
+    if (DOM.btnModePreviousMonths) {
+      DOM.btnModePreviousMonths.addEventListener('click', () => {
+        state.expenseGraphMode = 'PREVIOUS_MONTHS';
+        if (DOM.btnModePreviousMonths) DOM.btnModePreviousMonths.classList.add('active');
+        if (DOM.btnModeCategorySpend) DOM.btnModeCategorySpend.classList.remove('active');
+        renderUnifiedExpenseSection();
+      });
     }
 
     // Auth Event Listeners
@@ -522,7 +545,6 @@
     // Update Header Title
     if (DOM.topPageTitle) {
       if (tabName === 'dashboard') DOM.topPageTitle.textContent = 'Dashboard';
-      else if (tabName === 'analytics') DOM.topPageTitle.textContent = 'Analytics';
       else if (tabName === 'ledger') DOM.topPageTitle.textContent = 'Transaction History';
       else if (tabName === 'notes') DOM.topPageTitle.textContent = 'My Notes';
       else if (tabName === 'settings') DOM.topPageTitle.textContent = 'Settings';
@@ -531,9 +553,8 @@
     if (tabName === 'dashboard') {
       renderNotebookDashboard();
       renderDashboardReminders();
-      renderMonthlyExpenseChart();
+      renderUnifiedExpenseSection();
     }
-    else if (tabName === 'analytics') renderAnalyticsTab();
     else if (tabName === 'ledger') renderBankStatementLedger();
     else if (tabName === 'notes') renderPersonalNotesTab();
     else if (tabName === 'settings') renderSettingsTab();
@@ -588,14 +609,11 @@
     updateBrandTitle();
     renderNotebookDashboard();
     renderDashboardReminders();
-    renderMonthlyExpenseChart();
+    renderUnifiedExpenseSection();
     renderBankStatementLedger();
     renderPersonalNotesTab();
     renderSettingsTab();
     populateSegregationDropdowns();
-    if (state.activeTab === 'analytics') {
-      renderAnalyticsTab();
-    }
   }
 
   // RENDER DASHBOARD EXECUTIVE LEDGER (EXACT NOTEBOOK FORMAT: Name ......... Amount)
@@ -1086,48 +1104,188 @@
   }
 
   // ==========================================================================
-  // DASHBOARD MONTHLY EXPENSE GRAPH
+  // UNIFIED MONTHLY EXPENSE SECTION (NUMBERS + HOW I SPENT / PREVIOUS MONTHS)
   // ==========================================================================
-  function renderMonthlyExpenseChart() {
-    if (!DOM.dashboardMonthlyChart) return;
 
+  function getAvailableExpenseMonths() {
     const aggregates = getMonthlyExpenseAggregates();
-    const { monthsData, thisMonthSpend, averageMonthly, peakMonth } = aggregates;
+    const keys = aggregates.monthsData.map(m => m.monthKey);
+    const cur = getCurrentMonthKey();
+    if (!keys.includes(cur)) {
+      keys.push(cur);
+    }
+    keys.sort();
+    return { keys, aggregates };
+  }
 
-    if (DOM.statThisMonthSpend) DOM.statThisMonthSpend.textContent = formatMoney(thisMonthSpend);
-    if (DOM.statMonthlyAverage) DOM.statMonthlyAverage.textContent = formatMoney(averageMonthly);
-    if (DOM.statPeakMonth) {
-      DOM.statPeakMonth.textContent = peakMonth ? `${peakMonth.label} (${formatMoney(peakMonth.expense)})` : '—';
+  function navigateExpenseMonth(direction) {
+    const { keys } = getAvailableExpenseMonths();
+    if (keys.length === 0) return;
+
+    let currentIdx = keys.indexOf(state.selectedExpenseMonth);
+    if (currentIdx === -1) {
+      currentIdx = keys.length - 1;
     }
 
-    if (window.Chart) {
-      if (DOM.dashboardChartFallback) DOM.dashboardChartFallback.classList.add('hidden');
-      DOM.dashboardMonthlyChart.classList.remove('hidden');
+    const newIdx = currentIdx + direction;
+    if (newIdx >= 0 && newIdx < keys.length) {
+      state.selectedExpenseMonth = keys[newIdx];
+      renderUnifiedExpenseSection();
+    }
+  }
 
-      const labels = monthsData.map(m => m.label);
-      const data = monthsData.map(m => m.expense);
+  function renderUnifiedExpenseSection() {
+    if (!DOM.monthlyExpenseDashboardCard) return;
 
-      const backgroundColors = monthsData.map(m => {
-        if (peakMonth && m.monthKey === peakMonth.monthKey && m.expense > 0) return '#c59b27';
-        if (m.monthKey === getCurrentMonthKey()) return '#8b5d4e';
-        return '#6e473b';
-      });
+    const { keys, aggregates } = getAvailableExpenseMonths();
+    if (keys.length === 0) return;
 
-      if (state.charts.dashboardMonthly) {
-        state.charts.dashboardMonthly.destroy();
+    if (!state.selectedExpenseMonth || !keys.includes(state.selectedExpenseMonth)) {
+      state.selectedExpenseMonth = getCurrentMonthKey();
+      if (!keys.includes(state.selectedExpenseMonth)) {
+        state.selectedExpenseMonth = keys[keys.length - 1];
+      }
+    }
+
+    // 1. Populate Month Dropdown (Newest first for intuitive selection)
+    if (DOM.selectExpenseMonth) {
+      const reversedKeys = [...keys].reverse();
+      const currentMonthKey = getCurrentMonthKey();
+      DOM.selectExpenseMonth.innerHTML = reversedKeys.map(k => {
+        const label = formatMonthLabel(k);
+        const suffix = k === currentMonthKey ? ' (Current)' : '';
+        return `<option value="${k}" ${k === state.selectedExpenseMonth ? 'selected' : ''}>${label}${suffix}</option>`;
+      }).join('');
+      DOM.selectExpenseMonth.value = state.selectedExpenseMonth;
+    }
+
+    // 2. Update Prev / Next Buttons state
+    const currentIdx = keys.indexOf(state.selectedExpenseMonth);
+    if (DOM.btnPrevExpenseMonth) {
+      DOM.btnPrevExpenseMonth.disabled = (currentIdx <= 0);
+    }
+    if (DOM.btnNextExpenseMonth) {
+      DOM.btnNextExpenseMonth.disabled = (currentIdx >= keys.length - 1);
+    }
+
+    // 3. Calculate selected month numbers and previous month comparison
+    const targetMonthData = aggregates.monthsData.find(m => m.monthKey === state.selectedExpenseMonth) || {
+      expense: 0,
+      income: 0,
+      categories: {}
+    };
+    const selectedExpense = targetMonthData.expense || 0;
+
+    // Determine previous calendar month
+    const [selYear, selMonth] = state.selectedExpenseMonth.split('-').map(Number);
+    const prevDate = new Date(selYear, selMonth - 2, 1);
+    const prevMonthKey = getCurrentMonthKey(prevDate);
+    const prevMonthData = aggregates.monthsData.find(m => m.monthKey === prevMonthKey);
+    const prevExpense = prevMonthData ? prevMonthData.expense : 0;
+
+    const isCurrent = state.selectedExpenseMonth === getCurrentMonthKey();
+    const monthFormatted = formatMonthLabel(state.selectedExpenseMonth);
+
+    if (DOM.labelSelectedMonthExpense) {
+      DOM.labelSelectedMonthExpense.textContent = isCurrent
+        ? "This Month's Total Expense"
+        : `${monthFormatted} Total Expense`;
+    }
+
+    if (DOM.displayMonthTotalExpense) {
+      DOM.displayMonthTotalExpense.textContent = formatMoney(selectedExpense);
+    }
+
+    if (DOM.displayPrevMonthComparison) {
+      const prevFormatted = formatMonthLabel(prevMonthKey);
+      let comp = `Previous Month (${prevFormatted}): ${formatMoney(prevExpense)}`;
+      if (prevExpense > 0 && selectedExpense > 0) {
+        const diff = selectedExpense - prevExpense;
+        const pct = Math.abs(Math.round((diff / prevExpense) * 100));
+        if (diff > 0) comp += ` (${pct}% more)`;
+        else if (diff < 0) comp += ` (${pct}% less)`;
+        else comp += ` (same)`;
+      }
+      DOM.displayPrevMonthComparison.textContent = comp;
+    }
+
+    if (DOM.labelModeMonthName) {
+      DOM.labelModeMonthName.textContent = monthFormatted;
+    }
+
+    // Update active class on toggle buttons
+    if (DOM.btnModeCategorySpend) {
+      DOM.btnModeCategorySpend.classList.toggle('active', state.expenseGraphMode === 'CATEGORIES');
+    }
+    if (DOM.btnModePreviousMonths) {
+      DOM.btnModePreviousMonths.classList.toggle('active', state.expenseGraphMode === 'PREVIOUS_MONTHS');
+    }
+
+    // 4. Render Chart or Fallback
+    if (state.expenseGraphMode === 'CATEGORIES') {
+      renderCategorySpendGraph(targetMonthData, monthFormatted);
+    } else {
+      renderPreviousMonthsGraph(aggregates.monthsData, state.selectedExpenseMonth);
+    }
+  }
+
+  function renderCategorySpendGraph(monthData, monthLabel) {
+    const categories = Object.keys(monthData.categories || {});
+    // Sort descending by amount
+    categories.sort((a, b) => (monthData.categories[b] || 0) - (monthData.categories[a] || 0));
+    const amounts = categories.map(c => monthData.categories[c] || 0);
+
+    const palette = ['#6e473b', '#c59b27', '#a07855', '#4e3027', '#e07a5f', '#81b29a', '#deb986', '#8d5b4c'];
+
+    if (window.Chart && DOM.singleExpenseChart) {
+      if (DOM.singleExpenseFallback) DOM.singleExpenseFallback.classList.add('hidden');
+      DOM.singleExpenseChart.classList.remove('hidden');
+
+      if (state.charts.singleExpense) {
+        state.charts.singleExpense.destroy();
       }
 
-      const ctx = DOM.dashboardMonthlyChart.getContext('2d');
-      state.charts.dashboardMonthly = new Chart(ctx, {
+      const ctx = DOM.singleExpenseChart.getContext('2d');
+
+      if (categories.length === 0 || amounts.every(a => a === 0)) {
+        // Display nice empty bar placeholder
+        state.charts.singleExpense = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: [`No Expenses Recorded in ${monthLabel}`],
+            datasets: [{
+              label: 'Expense',
+              data: [0],
+              backgroundColor: '#e5dac8',
+              borderRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: { enabled: false }
+            },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: '#786452' } },
+              y: { max: 100, grid: { color: '#e5dac8' }, ticks: { display: false } }
+            }
+          }
+        });
+        return;
+      }
+
+      state.charts.singleExpense = new Chart(ctx, {
         type: 'bar',
         data: {
-          labels,
+          labels: categories,
           datasets: [{
-            label: 'Monthly Expense (₹)',
-            data,
-            backgroundColor: backgroundColors,
+            label: `Spent in ${monthLabel}`,
+            data: amounts,
+            backgroundColor: categories.map((_, i) => palette[i % palette.length]),
             borderRadius: 6,
-            maxBarThickness: 38
+            maxBarThickness: 45
           }]
         },
         options: {
@@ -1137,13 +1295,14 @@
             legend: { display: false },
             tooltip: {
               backgroundColor: '#2b2118',
-              titleFont: { family: "'Plus Jakarta Sans', sans-serif", weight: 'bold' },
-              bodyFont: { family: "'Plus Jakarta Sans', sans-serif" },
               padding: 10,
               cornerRadius: 8,
               callbacks: {
                 label: function (ctx) {
-                  return ` Total Spent: ₹${Number(ctx.raw || 0).toLocaleString('en-IN')}`;
+                  const val = ctx.raw || 0;
+                  const total = amounts.reduce((a, b) => a + b, 0);
+                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                  return ` ${ctx.label}: ₹${Number(val).toLocaleString('en-IN')} (${pct}%)`;
                 }
               }
             }
@@ -1151,15 +1310,11 @@
           scales: {
             x: {
               grid: { display: false },
-              ticks: {
-                font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600', size: 11 },
-                color: '#786452'
-              }
+              ticks: { font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600' }, color: '#786452' }
             },
             y: {
               grid: { color: '#e5dac8' },
               ticks: {
-                font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 },
                 color: '#786452',
                 callback: function (val) {
                   if (val >= 1000) return `₹${(val / 1000).toFixed(0)}k`;
@@ -1171,83 +1326,33 @@
         }
       });
     } else {
-      renderChartFallback(DOM.dashboardChartFallback, DOM.dashboardMonthlyChart, monthsData);
+      renderSingleChartFallback(categories.map((c, i) => ({ label: c, value: amounts[i] })));
     }
   }
 
-  function renderChartFallback(fallbackEl, canvasEl, monthsData) {
-    if (!fallbackEl) return;
-    if (canvasEl) canvasEl.classList.add('hidden');
-    fallbackEl.classList.remove('hidden');
-    fallbackEl.innerHTML = '';
+  function renderPreviousMonthsGraph(monthsData, selectedMonthKey) {
+    if (window.Chart && DOM.singleExpenseChart) {
+      if (DOM.singleExpenseFallback) DOM.singleExpenseFallback.classList.add('hidden');
+      DOM.singleExpenseChart.classList.remove('hidden');
 
-    const maxVal = Math.max(...monthsData.map(m => m.expense), 1);
-    monthsData.forEach(m => {
-      const heightPercent = Math.max((m.expense / maxVal) * 100, 4);
-      const isHighlight = m.expense > 0 && m.expense === maxVal;
-
-      const col = document.createElement('div');
-      col.className = 'fallback-bar-col';
-      col.innerHTML = `
-        <span class="fallback-bar-val">${m.expense > 0 ? '₹' + Math.round(m.expense) : '—'}</span>
-        <div class="fallback-bar ${isHighlight ? 'highlight' : ''}" style="height: ${heightPercent}%;"></div>
-        <span class="fallback-bar-label">${m.label.split(' ')[0]}</span>
-      `;
-      fallbackEl.appendChild(col);
-    });
-  }
-
-  // ==========================================================================
-  // FULL FINANCIAL ANALYTICS TAB
-  // ==========================================================================
-  function renderAnalyticsTab() {
-    const aggregates = getMonthlyExpenseAggregates();
-    const { monthsData, totalExpenseRecorded, totalTxCount, averageMonthly, peakMonth, topCategory, topCategoryAmount } = aggregates;
-
-    if (DOM.analyticsTotalExpense) DOM.analyticsTotalExpense.textContent = formatMoney(totalExpenseRecorded);
-    if (DOM.analyticsTotalTxCount) DOM.analyticsTotalTxCount.textContent = `${totalTxCount} debit entries`;
-    if (DOM.analyticsAverageMonthly) DOM.analyticsAverageMonthly.textContent = formatMoney(averageMonthly);
-    if (DOM.analyticsTopCategory) DOM.analyticsTopCategory.textContent = topCategory;
-    if (DOM.analyticsTopCategoryAmount) DOM.analyticsTopCategoryAmount.textContent = formatMoney(topCategoryAmount) + ' spent';
-    if (DOM.analyticsHighestMonth) DOM.analyticsHighestMonth.textContent = peakMonth ? formatMoney(peakMonth.expense) : '—';
-    if (DOM.analyticsHighestMonthName) DOM.analyticsHighestMonthName.textContent = peakMonth ? peakMonth.label : 'None';
-
-    // Populate Month filter for Category Donut
-    if (DOM.analyticsMonthFilter) {
-      const currentVal = DOM.analyticsMonthFilter.value;
-      let optionsHtml = '<option value="ALL">All Recorded Months</option>';
-      monthsData.slice().reverse().forEach(m => {
-        optionsHtml += `<option value="${m.monthKey}">${m.label}</option>`;
-      });
-      DOM.analyticsMonthFilter.innerHTML = optionsHtml;
-      if (currentVal && DOM.analyticsMonthFilter.querySelector(`option[value="${currentVal}"]`)) {
-        DOM.analyticsMonthFilter.value = currentVal;
+      if (state.charts.singleExpense) {
+        state.charts.singleExpense.destroy();
       }
-    }
-
-    // 1. Render Monthly History Bar Chart
-    if (window.Chart && DOM.analyticsMonthlyChart) {
-      if (DOM.analyticsMonthlyFallback) DOM.analyticsMonthlyFallback.classList.add('hidden');
-      DOM.analyticsMonthlyChart.classList.remove('hidden');
 
       const labels = monthsData.map(m => m.label);
       const data = monthsData.map(m => m.expense);
       const bgColors = monthsData.map(m => {
-        if (peakMonth && m.monthKey === peakMonth.monthKey && m.expense > 0) return '#c59b27';
-        return '#6e473b';
+        if (m.monthKey === selectedMonthKey) return '#c59b27'; // Highlight selected month in gold
+        return '#6e473b'; // Default rich brown
       });
 
-      if (state.charts.analyticsMonthly) {
-        state.charts.analyticsMonthly.destroy();
-      }
-
-      const ctx = DOM.analyticsMonthlyChart.getContext('2d');
-      state.charts.analyticsMonthly = new Chart(ctx, {
+      const ctx = DOM.singleExpenseChart.getContext('2d');
+      state.charts.singleExpense = new Chart(ctx, {
         type: 'bar',
         data: {
           labels,
           datasets: [{
-            label: 'Total Expenses',
+            label: 'Monthly Expense (₹)',
             data,
             backgroundColor: bgColors,
             borderRadius: 6,
@@ -1289,143 +1394,33 @@
         }
       });
     } else {
-      renderChartFallback(DOM.analyticsMonthlyFallback, DOM.analyticsMonthlyChart, monthsData);
-    }
-
-    // 2. Render Category Donut
-    renderAnalyticsCategoryDonut();
-
-    // 3. Render Month-by-Month Summary Table
-    if (DOM.analyticsMonthlyTableBody) {
-      DOM.analyticsMonthlyTableBody.innerHTML = '';
-      const reversedMonths = [...monthsData].filter(m => m.expense > 0 || m.income > 0).reverse();
-      if (reversedMonths.length === 0) {
-        DOM.analyticsMonthlyTableBody.innerHTML = `
-          <tr>
-            <td colspan="5" class="text-center text-muted" style="padding: 1.5rem;">No monthly history recorded yet.</td>
-          </tr>
-        `;
-        return;
-      }
-
-      reversedMonths.forEach(m => {
-        let topCat = '—';
-        let topCatAmt = 0;
-        Object.entries(m.categories).forEach(([c, val]) => {
-          if (val > topCatAmt) {
-            topCatAmt = val;
-            topCat = `${c} (${formatMoney(val)})`;
-          }
-        });
-
-        const net = m.income - m.expense;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><strong>${m.label}</strong></td>
-          <td class="passbook-debit">${m.expense > 0 ? '-' + formatMoney(m.expense) : '₹0'}</td>
-          <td class="passbook-credit">${m.income > 0 ? '+' + formatMoney(m.income) : '₹0'}</td>
-          <td style="font-weight: 800; color: ${net >= 0 ? 'var(--credit-color)' : 'var(--debit-color)'};">
-            ${net >= 0 ? '+' : ''}${formatMoney(net)}
-          </td>
-          <td>${escapeHTML(topCat)}</td>
-        `;
-        DOM.analyticsMonthlyTableBody.appendChild(tr);
-      });
+      renderSingleChartFallback(monthsData.map(m => ({ label: m.label.split(' ')[0], value: m.expense })));
     }
   }
 
-  function renderAnalyticsCategoryDonut() {
-    if (!DOM.analyticsCategoryChart) return;
-    const selectedMonth = DOM.analyticsMonthFilter ? DOM.analyticsMonthFilter.value : 'ALL';
-    const aggregates = getMonthlyExpenseAggregates();
+  function renderSingleChartFallback(items) {
+    if (!DOM.singleExpenseFallback) return;
+    if (DOM.singleExpenseChart) DOM.singleExpenseChart.classList.add('hidden');
+    DOM.singleExpenseFallback.classList.remove('hidden');
+    DOM.singleExpenseFallback.innerHTML = '';
 
-    let catData = {};
-    if (selectedMonth === 'ALL') {
-      catData = aggregates.categoryTotals;
-    } else {
-      const target = aggregates.monthsData.find(m => m.monthKey === selectedMonth);
-      catData = target ? target.categories : {};
+    if (!items || items.length === 0) {
+      DOM.singleExpenseFallback.innerHTML = '<p class="text-center text-muted" style="padding: 2rem;">No data available</p>';
+      return;
     }
 
-    const categories = Object.keys(catData);
-    const amounts = Object.values(catData);
-    const palette = ['#6e473b', '#c59b27', '#a07855', '#4e3027', '#e07a5f', '#81b29a', '#deb986', '#8d5b4c'];
-
-    if (window.Chart) {
-      if (DOM.analyticsCategoryFallback) DOM.analyticsCategoryFallback.classList.add('hidden');
-      DOM.analyticsCategoryChart.classList.remove('hidden');
-
-      if (state.charts.analyticsCategory) {
-        state.charts.analyticsCategory.destroy();
-      }
-
-      if (categories.length === 0) {
-        const ctx = DOM.analyticsCategoryChart.getContext('2d');
-        state.charts.analyticsCategory = new Chart(ctx, {
-          type: 'doughnut',
-          data: {
-            labels: ['No Expenses in Month'],
-            datasets: [{
-              data: [1],
-              backgroundColor: ['#e5dac8'],
-              borderWidth: 0
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { position: 'bottom', labels: { color: '#786452' } },
-              tooltip: { enabled: false }
-            }
-          }
-        });
-        return;
-      }
-
-      const ctx = DOM.analyticsCategoryChart.getContext('2d');
-      state.charts.analyticsCategory = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: categories,
-          datasets: [{
-            data: amounts,
-            backgroundColor: palette.slice(0, categories.length),
-            borderWidth: 2,
-            borderColor: '#ffffff',
-            hoverOffset: 6
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'bottom',
-              labels: {
-                font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600', size: 11 },
-                color: '#2b2118',
-                padding: 12
-              }
-            },
-            tooltip: {
-              backgroundColor: '#2b2118',
-              padding: 10,
-              cornerRadius: 8,
-              callbacks: {
-                label: function (ctx) {
-                  const val = ctx.raw || 0;
-                  const total = amounts.reduce((a, b) => a + b, 0);
-                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-                  return ` ${ctx.label}: ₹${val.toLocaleString('en-IN')} (${pct}%)`;
-                }
-              }
-            }
-          },
-          cutout: '62%'
-        }
-      });
-    }
+    const maxVal = Math.max(...items.map(i => i.value), 1);
+    items.forEach(item => {
+      const heightPercent = Math.max((item.value / maxVal) * 100, 4);
+      const col = document.createElement('div');
+      col.className = 'fallback-bar-col';
+      col.innerHTML = `
+        <span class="fallback-bar-val">${item.value > 0 ? '₹' + Math.round(item.value) : '—'}</span>
+        <div class="fallback-bar" style="height: ${heightPercent}%;"></div>
+        <span class="fallback-bar-label">${escapeHTML(item.label)}</span>
+      `;
+      DOM.singleExpenseFallback.appendChild(col);
+    });
   }
 
   // DOWNLOAD PDF FUNCTION (NORMAL PDF FORM PRINT)

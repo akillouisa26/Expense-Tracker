@@ -1300,7 +1300,7 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 }
 
 /* ==========================================================================
-   Monthly Expense Graph & Analytics Cards
+   Streamlined Monthly Expense Overview & Numbers Callout
    ========================================================================== */
 .dashboard-chart-card {
   padding: 1.5rem;
@@ -1316,11 +1316,11 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.15rem;
 }
 
 .chart-card-title {
-  font-size: 1.15rem;
+  font-size: 1.2rem;
   font-weight: 800;
   color: var(--brown-primary);
   display: flex;
@@ -1330,81 +1330,131 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 }
 
 .chart-card-subtitle {
-  font-size: 0.825rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
   margin-top: 0.2rem;
 }
 
-.chart-metrics-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.85rem;
+/* Month Navigation Toolbar */
+.month-nav-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.month-select-dropdown {
+  padding: 0.45rem 0.85rem;
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--brown-primary);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-card-hover);
+  cursor: pointer;
+  min-width: 160px;
+}
+
+.month-select-dropdown:focus {
+  outline: none;
+  border-color: var(--brown-primary);
+}
+
+/* Clear Expense Numbers Callout Banner */
+.expense-numbers-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1.15rem 1.4rem;
+  background: linear-gradient(135deg, #fdf8ee 0%, #f6ede0 100%);
+  border: 1.5px solid #e7cca8;
+  border-radius: var(--radius-md);
   margin-bottom: 1.25rem;
 }
 
-.metric-stat-box {
-  background: var(--bg-card-hover);
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 0.85rem 1.1rem;
-  transition: transform var(--transition-fast);
-}
-
-.metric-stat-box:hover {
-  transform: translateY(-2px);
-}
-
-.metric-stat-box.highlight {
-  background: #fdf5ea;
-  border-color: #deb986;
-}
-
-.stat-label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  font-weight: 700;
+.expense-numbers-left .numbers-label {
   display: block;
-  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 800;
+  color: var(--text-muted);
+  margin-bottom: 0.2rem;
 }
 
-.stat-value {
-  font-size: 1.25rem;
+.numbers-main-amount {
+  font-size: 1.85rem;
   font-weight: 800;
   color: var(--brown-primary);
-  margin: 0;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
 }
 
-.stat-subtext {
-  font-size: 0.75rem;
+.expense-numbers-right .comparison-label {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* Mode Toggle Row */
+.graph-mode-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.toggle-row-label {
+  font-size: 0.825rem;
+  font-weight: 700;
   color: var(--text-muted);
-  margin-top: 0.25rem;
-  display: block;
+}
+
+.graph-mode-toggle {
+  display: inline-flex;
+  background: #ede4d6;
+  padding: 0.25rem;
+  border-radius: var(--radius-md);
+  gap: 0.25rem;
+}
+
+.mode-toggle-btn {
+  border: none;
+  background: transparent;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family);
+  font-size: 0.825rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all var(--transition-fast);
+}
+
+.mode-toggle-btn:hover {
+  color: var(--text-main);
+}
+
+.mode-toggle-btn.active {
+  background: #ffffff;
+  color: var(--brown-primary);
+  box-shadow: 0 2px 6px rgba(110, 71, 59, 0.12);
 }
 
 .chart-canvas-container {
   position: relative;
   width: 100%;
-}
-
-/* Analytics Tab Grid */
-.analytics-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 1rem;
-}
-
-.analytics-charts-grid {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 1.25rem;
-}
-
-@media (max-width: 992px) {
-  .analytics-charts-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Pure CSS Chart Fallback (Offline Mode) */
