@@ -21,6 +21,9 @@
     window.FirebaseSDK = { initializeApp, getFirestore, doc, setDoc, getDoc, collection, getDocs, onSnapshot, getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup };
   </script>
 
+  <!-- Chart.js for Interactive Expense Graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <!-- Custom Styles -->
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -36,6 +39,9 @@
       <nav class="sidebar-nav">
         <button class="nav-link-btn active" data-tab="dashboard">
           Dashboard
+        </button>
+        <button class="nav-link-btn" data-tab="analytics">
+          Analytics
         </button>
         <button class="nav-link-btn" data-tab="ledger">
           Transaction History
@@ -73,6 +79,25 @@
 
       <!-- TAB 1: DASHBOARD LEDGER FORMAT (EXACT NOTEBOOK FORMAT, NEW SLEEK STYLING) -->
       <section id="tab-dashboard" class="tab-content active">
+        <!-- DASHBOARD REMINDERS NOTIFICATION BANNER -->
+        <div id="dashboardRemindersBanner" class="dashboard-reminder-banner hidden">
+          <div class="reminder-banner-header">
+            <div class="reminder-header-left">
+              <span class="reminder-bell-icon"><i class="fa-solid fa-bell"></i></span>
+              <div class="reminder-banner-text">
+                <strong id="reminderBannerTitle">Notes & Reminders</strong>
+                <span id="reminderBannerSubtitle" class="text-muted">You have upcoming tasks</span>
+              </div>
+            </div>
+            <button class="btn btn-outline-brown btn-sm" id="btnGoToNotes">
+              View All Notes <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </div>
+          <div id="dashboardRemindersList" class="reminder-chips-list">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
         <div class="executive-ledger-card">
           <div class="ledger-header">
             <h2 class="ledger-title">My Segregations</h2>
@@ -88,6 +113,128 @@
             <div class="total-label">Total</div>
             <div class="total-dash">—</div>
             <div id="notebookGrandTotal" class="total-amount">₹0</div>
+          </div>
+        </div>
+
+        <!-- DASHBOARD MONTHLY EXPENSE GRAPH CARD -->
+        <div class="card dashboard-chart-card mt-4">
+          <div class="chart-card-header">
+            <div>
+              <h3 class="chart-card-title"><i class="fa-solid fa-chart-column" style="color: var(--brown-primary);"></i> Monthly Expense Trend</h3>
+              <p class="chart-card-subtitle text-muted">Visual track of your monthly spending habits</p>
+            </div>
+            <div class="chart-header-actions">
+              <button class="btn btn-outline-brown btn-sm" id="btnDashboardToAnalytics">
+                <i class="fa-solid fa-chart-pie"></i> Detailed Analytics
+              </button>
+            </div>
+          </div>
+
+          <!-- Monthly Stats Highlights -->
+          <div class="chart-metrics-row">
+            <div class="metric-stat-box">
+              <span class="stat-label">This Month's Spending</span>
+              <h4 id="statThisMonthSpend" class="stat-value">₹0</h4>
+            </div>
+            <div class="metric-stat-box">
+              <span class="stat-label">Monthly Average</span>
+              <h4 id="statMonthlyAverage" class="stat-value">₹0</h4>
+            </div>
+            <div class="metric-stat-box highlight">
+              <span class="stat-label">Peak Spending Month</span>
+              <h4 id="statPeakMonth" class="stat-value">—</h4>
+            </div>
+          </div>
+
+          <!-- Canvas Chart Area -->
+          <div class="chart-canvas-container" style="position: relative; height: 280px; width: 100%;">
+            <canvas id="dashboardMonthlyChart"></canvas>
+            <div id="dashboardChartFallback" class="chart-fallback hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: ANALYTICS & VISUAL EXPENSE GRAPHS -->
+      <section id="tab-analytics" class="tab-content">
+        <div class="section-container">
+          <div class="section-header">
+            <h2 class="section-title">Financial Analytics & Expense Graphs</h2>
+          </div>
+
+          <!-- Analytics Summary Top Highlights -->
+          <div class="analytics-metrics-grid mb-4">
+            <div class="card card-body metric-stat-box">
+              <span class="stat-label">Total Expenses Recorded</span>
+              <h3 id="analyticsTotalExpense" class="stat-value text-danger">₹0</h3>
+              <span class="stat-subtext text-muted" id="analyticsTotalTxCount">0 expenses</span>
+            </div>
+            <div class="card card-body metric-stat-box">
+              <span class="stat-label">Average Monthly Expense</span>
+              <h3 id="analyticsAverageMonthly" class="stat-value">₹0</h3>
+              <span class="stat-subtext text-muted">Per active month</span>
+            </div>
+            <div class="card card-body metric-stat-box">
+              <span class="stat-label">Top Spending Category</span>
+              <h3 id="analyticsTopCategory" class="stat-value" style="color: var(--brown-primary);">—</h3>
+              <span class="stat-subtext text-muted" id="analyticsTopCategoryAmount">₹0 spent</span>
+            </div>
+            <div class="card card-body metric-stat-box highlight">
+              <span class="stat-label">Highest Expense Month</span>
+              <h3 id="analyticsHighestMonth" class="stat-value">₹0</h3>
+              <span class="stat-subtext text-muted" id="analyticsHighestMonthName">—</span>
+            </div>
+          </div>
+
+          <!-- Two-Column Charts Grid -->
+          <div class="analytics-charts-grid mb-4">
+            <!-- Monthly Spending Bar Chart -->
+            <div class="card card-body chart-card">
+              <div class="chart-card-header mb-3">
+                <h3 class="chart-card-title"><i class="fa-solid fa-chart-column"></i> Monthly Expense History</h3>
+                <span class="badge-outline">All Months</span>
+              </div>
+              <div class="chart-canvas-container" style="position: relative; height: 320px; width: 100%;">
+                <canvas id="analyticsMonthlyChart"></canvas>
+                <div id="analyticsMonthlyFallback" class="chart-fallback hidden"></div>
+              </div>
+            </div>
+
+            <!-- Category Breakdown Donut Chart -->
+            <div class="card card-body chart-card">
+              <div class="chart-card-header mb-3" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <h3 class="chart-card-title"><i class="fa-solid fa-chart-pie"></i> Category Breakdown</h3>
+                <select id="analyticsMonthFilter" class="form-input" style="width: auto; padding: 0.3rem 0.6rem; font-size: 0.85rem; font-weight: 700;">
+                  <!-- Filled dynamically -->
+                </select>
+              </div>
+              <div class="chart-canvas-container" style="position: relative; height: 320px; width: 100%;">
+                <canvas id="analyticsCategoryChart"></canvas>
+                <div id="analyticsCategoryFallback" class="chart-fallback hidden"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Month-by-Month Statement Table -->
+          <div class="card card-body">
+            <h3 class="mb-3" style="font-size: 1.05rem; color: var(--brown-primary); font-weight: 700;">
+              <i class="fa-solid fa-table-list"></i> Month-by-Month Summary Table
+            </h3>
+            <div class="table-responsive">
+              <table class="passbook-table">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Expenses (Debit)</th>
+                    <th>Inflow (Credit)</th>
+                    <th>Net Balance</th>
+                    <th>Top Category</th>
+                  </tr>
+                </thead>
+                <tbody id="analyticsMonthlyTableBody">
+                  <!-- Rendered dynamically -->
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -167,6 +314,11 @@
             <div class="form-group">
               <label for="personalNoteTitleInput">Note Title</label>
               <input type="text" id="personalNoteTitleInput" class="form-input" placeholder="e.g. Buy Shoes, Pay Bill..." required />
+            </div>
+
+            <div class="form-group">
+              <label for="personalNoteDateInput">Target / Reminder Date</label>
+              <input type="date" id="personalNoteDateInput" class="form-input" required />
             </div>
 
             <div class="form-group">

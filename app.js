@@ -38,7 +38,12 @@
       isProtectionEnabled: false
     },
     isAppUnlocked: false,
-    isInitialCloudSyncDone: false
+    isInitialCloudSyncDone: false,
+    charts: {
+      dashboardMonthly: null,
+      analyticsMonthly: null,
+      analyticsCategory: null
+    }
   };
 
   // DOM Elements
@@ -123,6 +128,36 @@
     DOM.notebookGrandTotal = document.getElementById('notebookGrandTotal');
     DOM.notebookSegregationsList = document.getElementById('notebookSegregationsList');
 
+    // Dashboard Reminders Notification Banner
+    DOM.dashboardRemindersBanner = document.getElementById('dashboardRemindersBanner');
+    DOM.reminderBannerTitle = document.getElementById('reminderBannerTitle');
+    DOM.reminderBannerSubtitle = document.getElementById('reminderBannerSubtitle');
+    DOM.btnGoToNotes = document.getElementById('btnGoToNotes');
+    DOM.dashboardRemindersList = document.getElementById('dashboardRemindersList');
+
+    // Dashboard Monthly Chart & Stats
+    DOM.btnDashboardToAnalytics = document.getElementById('btnDashboardToAnalytics');
+    DOM.statThisMonthSpend = document.getElementById('statThisMonthSpend');
+    DOM.statMonthlyAverage = document.getElementById('statMonthlyAverage');
+    DOM.statPeakMonth = document.getElementById('statPeakMonth');
+    DOM.dashboardMonthlyChart = document.getElementById('dashboardMonthlyChart');
+    DOM.dashboardChartFallback = document.getElementById('dashboardChartFallback');
+
+    // Analytics Tab Elements
+    DOM.analyticsTotalExpense = document.getElementById('analyticsTotalExpense');
+    DOM.analyticsTotalTxCount = document.getElementById('analyticsTotalTxCount');
+    DOM.analyticsAverageMonthly = document.getElementById('analyticsAverageMonthly');
+    DOM.analyticsTopCategory = document.getElementById('analyticsTopCategory');
+    DOM.analyticsTopCategoryAmount = document.getElementById('analyticsTopCategoryAmount');
+    DOM.analyticsHighestMonth = document.getElementById('analyticsHighestMonth');
+    DOM.analyticsHighestMonthName = document.getElementById('analyticsHighestMonthName');
+    DOM.analyticsMonthlyChart = document.getElementById('analyticsMonthlyChart');
+    DOM.analyticsMonthlyFallback = document.getElementById('analyticsMonthlyFallback');
+    DOM.analyticsMonthFilter = document.getElementById('analyticsMonthFilter');
+    DOM.analyticsCategoryChart = document.getElementById('analyticsCategoryChart');
+    DOM.analyticsCategoryFallback = document.getElementById('analyticsCategoryFallback');
+    DOM.analyticsMonthlyTableBody = document.getElementById('analyticsMonthlyTableBody');
+
     // Savings Vault Tab & Actions
     DOM.savingsVaultTotalDisplay = document.getElementById('savingsVaultTotalDisplay');
     DOM.savingsPassbookBody = document.getElementById('savingsPassbookBody');
@@ -149,9 +184,13 @@
 
     // My Notes Tab
     DOM.personalNoteTitleInput = document.getElementById('personalNoteTitleInput');
+    DOM.personalNoteDateInput = document.getElementById('personalNoteDateInput');
     DOM.personalNoteAmountInput = document.getElementById('personalNoteAmountInput');
     DOM.btnSavePersonalNote = document.getElementById('btnSavePersonalNote');
     DOM.savedNotesContainer = document.getElementById('savedNotesContainer');
+    if (DOM.personalNoteDateInput) {
+      DOM.personalNoteDateInput.value = new Date().toISOString().split('T')[0];
+    }
 
     // Detail Modal
     DOM.modalSegregationDetail = document.getElementById('modalSegregationDetail');
@@ -390,6 +429,17 @@
     // PDF Download Button
     DOM.btnDownloadPDF.addEventListener('click', handleDownloadPDF);
 
+    // Reminders & Analytics Navigation
+    if (DOM.btnGoToNotes) {
+      DOM.btnGoToNotes.addEventListener('click', () => switchTab('notes'));
+    }
+    if (DOM.btnDashboardToAnalytics) {
+      DOM.btnDashboardToAnalytics.addEventListener('click', () => switchTab('analytics'));
+    }
+    if (DOM.analyticsMonthFilter) {
+      DOM.analyticsMonthFilter.addEventListener('change', renderAnalyticsCategoryDonut);
+    }
+
     // Auth Event Listeners
     if (DOM.btnTabSignIn) DOM.btnTabSignIn.addEventListener('click', () => switchAuthTab('SIGN_IN'));
     if (DOM.btnTabSignUp) DOM.btnTabSignUp.addEventListener('click', () => switchAuthTab('SIGN_UP'));
@@ -472,12 +522,18 @@
     // Update Header Title
     if (DOM.topPageTitle) {
       if (tabName === 'dashboard') DOM.topPageTitle.textContent = 'Dashboard';
+      else if (tabName === 'analytics') DOM.topPageTitle.textContent = 'Analytics';
       else if (tabName === 'ledger') DOM.topPageTitle.textContent = 'Transaction History';
       else if (tabName === 'notes') DOM.topPageTitle.textContent = 'My Notes';
       else if (tabName === 'settings') DOM.topPageTitle.textContent = 'Settings';
     }
 
-    if (tabName === 'dashboard') renderNotebookDashboard();
+    if (tabName === 'dashboard') {
+      renderNotebookDashboard();
+      renderDashboardReminders();
+      renderMonthlyExpenseChart();
+    }
+    else if (tabName === 'analytics') renderAnalyticsTab();
     else if (tabName === 'ledger') renderBankStatementLedger();
     else if (tabName === 'notes') renderPersonalNotesTab();
     else if (tabName === 'settings') renderSettingsTab();
@@ -531,10 +587,15 @@
   function renderAll() {
     updateBrandTitle();
     renderNotebookDashboard();
+    renderDashboardReminders();
+    renderMonthlyExpenseChart();
     renderBankStatementLedger();
     renderPersonalNotesTab();
     renderSettingsTab();
     populateSegregationDropdowns();
+    if (state.activeTab === 'analytics') {
+      renderAnalyticsTab();
+    }
   }
 
   // RENDER DASHBOARD EXECUTIVE LEDGER (EXACT NOTEBOOK FORMAT: Name ......... Amount)
@@ -730,7 +791,7 @@
     });
   }
 
-  // RENDER MY NOTES TAB (TITLE, MONEY, & MARK AS COMPLETED)
+  // RENDER MY NOTES TAB (TITLE, MONEY, DATE, & MARK AS COMPLETED)
   function renderPersonalNotesTab() {
     DOM.savedNotesContainer.innerHTML = '';
 
@@ -743,9 +804,23 @@
       return;
     }
 
+    const todayStr = new Date().toISOString().split('T')[0];
+
     state.personalNotes.forEach(note => {
       const card = document.createElement('div');
       card.className = `note-card ${note.isCompleted ? 'completed' : ''}`;
+
+      let dateBadgeHtml = `<span class="note-card-date">${note.date || todayStr}</span>`;
+      if (!note.isCompleted && note.date) {
+        if (note.date === todayStr) {
+          dateBadgeHtml = `<span class="badge-today"><i class="fa-solid fa-clock"></i> Due Today</span>`;
+        } else if (note.date < todayStr) {
+          dateBadgeHtml = `<span class="badge-overdue"><i class="fa-solid fa-triangle-exclamation"></i> Overdue (${note.date})</span>`;
+        } else {
+          dateBadgeHtml = `<span class="badge-upcoming"><i class="fa-regular fa-calendar-check"></i> Due: ${note.date}</span>`;
+        }
+      }
+
       card.innerHTML = `
         <button class="btn-delete-note" data-note-id="${note.id}" title="Delete Note">
           &times;
@@ -766,7 +841,9 @@
             <i class="fa-solid fa-check"></i> Mark as Completed
           </button>
         `}
-        <span class="note-card-date">${note.date}</span>
+        <div style="margin-top: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+          ${dateBadgeHtml}
+        </div>
       `;
 
       card.querySelector('.btn-delete-note').addEventListener('click', () => {
@@ -796,6 +873,9 @@
   function handleSavePersonalNote() {
     const title = DOM.personalNoteTitleInput.value.trim();
     const amount = parseFloat(DOM.personalNoteAmountInput.value) || 0;
+    const date = (DOM.personalNoteDateInput && DOM.personalNoteDateInput.value)
+      ? DOM.personalNoteDateInput.value
+      : new Date().toISOString().split('T')[0];
 
     if (!title) {
       showToast('Please enter note title', 'danger');
@@ -807,15 +887,19 @@
       title,
       amount,
       isCompleted: false,
-      date: new Date().toISOString().split('T')[0]
+      date
     };
 
     state.personalNotes.unshift(noteObj);
     saveNotesToStorage();
     DOM.personalNoteTitleInput.value = '';
     DOM.personalNoteAmountInput.value = '';
+    if (DOM.personalNoteDateInput) {
+      DOM.personalNoteDateInput.value = new Date().toISOString().split('T')[0];
+    }
     renderPersonalNotesTab();
-    showToast('Note saved!', 'success');
+    renderDashboardReminders();
+    showToast('Note saved with reminder date!', 'success');
   }
 
   function toggleCompleteNote(noteId) {
@@ -824,6 +908,7 @@
     note.isCompleted = !note.isCompleted;
     saveNotesToStorage();
     renderPersonalNotesTab();
+    renderDashboardReminders();
     showToast(note.isCompleted ? 'Note marked as completed!' : 'Note restored to active list!', 'success');
   }
 
@@ -832,7 +917,515 @@
     state.personalNotes = state.personalNotes.filter(n => n.id !== noteId);
     saveNotesToStorage();
     renderPersonalNotesTab();
+    renderDashboardReminders();
     showToast('Note deleted', 'success');
+  }
+
+  // ==========================================================================
+  // DASHBOARD REMINDERS & NOTIFICATION BANNER LOGIC
+  // ==========================================================================
+  function renderDashboardReminders() {
+    if (!DOM.dashboardRemindersBanner || !DOM.dashboardRemindersList) return;
+
+    const activeNotes = state.personalNotes.filter(n => !n.isCompleted);
+    if (activeNotes.length === 0) {
+      DOM.dashboardRemindersBanner.classList.add('hidden');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    let dueTodayCount = 0;
+    let overdueCount = 0;
+
+    activeNotes.forEach(n => {
+      if (n.date === todayStr) dueTodayCount++;
+      else if (n.date < todayStr) overdueCount++;
+    });
+
+    DOM.dashboardRemindersBanner.classList.remove('hidden');
+
+    if (overdueCount > 0 || dueTodayCount > 0) {
+      DOM.reminderBannerTitle.textContent = `🔔 ${dueTodayCount + overdueCount} Task${(dueTodayCount + overdueCount) > 1 ? 's' : ''} Need Attention!`;
+      DOM.reminderBannerSubtitle.textContent = `${dueTodayCount} due today, ${overdueCount} overdue. Check your scheduled tasks.`;
+    } else {
+      DOM.reminderBannerTitle.textContent = `📌 Scheduled Notes & Reminders (${activeNotes.length})`;
+      DOM.reminderBannerSubtitle.textContent = `You have ${activeNotes.length} active scheduled task${activeNotes.length > 1 ? 's' : ''}`;
+    }
+
+    DOM.dashboardRemindersList.innerHTML = '';
+    // Sort upcoming/overdue notes chronologically
+    const sortedNotes = [...activeNotes].sort((a, b) => new Date(a.date) - new Date(b.date));
+    sortedNotes.slice(0, 6).forEach(note => {
+      const isToday = note.date === todayStr;
+      const isOverdue = note.date < todayStr;
+      const statusBadge = isToday
+        ? `<span class="badge-today"><i class="fa-solid fa-clock"></i> Today</span>`
+        : (isOverdue ? `<span class="badge-overdue"><i class="fa-solid fa-triangle-exclamation"></i> Overdue</span>` : `<span class="badge-upcoming">${note.date}</span>`);
+
+      const chip = document.createElement('div');
+      chip.className = 'reminder-chip';
+      chip.innerHTML = `
+        ${statusBadge}
+        <strong>${escapeHTML(note.title)}</strong>
+        <span style="color: var(--brown-primary); font-weight: 700;">${formatMoney(note.amount)}</span>
+        <button class="btn-done-chip" title="Mark Done" style="margin-left: 0.25rem;">
+          <i class="fa-solid fa-check"></i>
+        </button>
+      `;
+
+      chip.querySelector('.btn-done-chip').addEventListener('click', () => {
+        toggleCompleteNote(note.id);
+      });
+
+      DOM.dashboardRemindersList.appendChild(chip);
+    });
+  }
+
+  // ==========================================================================
+  // MONTHLY EXPENSE AGGREGATION & DATA PROCESSING
+  // ==========================================================================
+  function getMonthlyExpenseAggregates() {
+    const monthlyMap = new Map();
+    let totalExpenseRecorded = 0;
+    let totalTxCount = 0;
+
+    // Pre-populate last 6 calendar months so the chart always displays a smooth history
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mKey = getCurrentMonthKey(d);
+      monthlyMap.set(mKey, { expense: 0, income: 0, categories: {} });
+    }
+
+    state.transactions.forEach(t => {
+      if (!t.date) return;
+      const mKey = t.monthKey || t.date.substring(0, 7);
+      if (!monthlyMap.has(mKey)) {
+        monthlyMap.set(mKey, { expense: 0, income: 0, categories: {} });
+      }
+      const data = monthlyMap.get(mKey);
+      const amt = Number(t.amount) || 0;
+      if (t.type === 'EXPENSE') {
+        data.expense += amt;
+        totalExpenseRecorded += amt;
+        totalTxCount++;
+        const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
+        data.categories[catName] = (data.categories[catName] || 0) + amt;
+      } else {
+        data.income += amt;
+      }
+    });
+
+    const sortedMonthKeys = Array.from(monthlyMap.keys()).sort();
+    const monthsData = sortedMonthKeys.map(mKey => {
+      const d = monthlyMap.get(mKey);
+      return {
+        monthKey: mKey,
+        label: formatMonthLabel(mKey),
+        expense: d.expense,
+        income: d.income,
+        categories: d.categories
+      };
+    });
+
+    const activeMonths = monthsData.filter(m => m.expense > 0);
+    const averageMonthly = activeMonths.length > 0 ? (totalExpenseRecorded / activeMonths.length) : 0;
+
+    const currentMKey = getCurrentMonthKey();
+    const currentMonthData = monthlyMap.get(currentMKey);
+    const thisMonthSpend = currentMonthData ? currentMonthData.expense : 0;
+
+    let peakMonth = null;
+    let peakSpend = 0;
+    monthsData.forEach(m => {
+      if (m.expense > peakSpend) {
+        peakSpend = m.expense;
+        peakMonth = m;
+      }
+    });
+
+    // Calculate all-time category totals
+    const categoryTotals = {};
+    state.transactions.forEach(t => {
+      if (t.type === 'EXPENSE') {
+        const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
+        categoryTotals[catName] = (categoryTotals[catName] || 0) + (Number(t.amount) || 0);
+      }
+    });
+
+    let topCategory = '—';
+    let topCategoryAmount = 0;
+    Object.entries(categoryTotals).forEach(([cat, val]) => {
+      if (val > topCategoryAmount) {
+        topCategoryAmount = val;
+        topCategory = cat;
+      }
+    });
+
+    return {
+      monthsData,
+      totalExpenseRecorded,
+      totalTxCount,
+      thisMonthSpend,
+      averageMonthly,
+      peakMonth,
+      categoryTotals,
+      topCategory,
+      topCategoryAmount
+    };
+  }
+
+  function formatMonthLabel(mKey) {
+    if (!mKey || !mKey.includes('-')) return mKey || '';
+    const parts = mKey.split('-');
+    const y = parts[0];
+    const m = parts[1];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const idx = parseInt(m, 10) - 1;
+    return `${monthNames[idx] || m} ${y}`;
+  }
+
+  // ==========================================================================
+  // DASHBOARD MONTHLY EXPENSE GRAPH
+  // ==========================================================================
+  function renderMonthlyExpenseChart() {
+    if (!DOM.dashboardMonthlyChart) return;
+
+    const aggregates = getMonthlyExpenseAggregates();
+    const { monthsData, thisMonthSpend, averageMonthly, peakMonth } = aggregates;
+
+    if (DOM.statThisMonthSpend) DOM.statThisMonthSpend.textContent = formatMoney(thisMonthSpend);
+    if (DOM.statMonthlyAverage) DOM.statMonthlyAverage.textContent = formatMoney(averageMonthly);
+    if (DOM.statPeakMonth) {
+      DOM.statPeakMonth.textContent = peakMonth ? `${peakMonth.label} (${formatMoney(peakMonth.expense)})` : '—';
+    }
+
+    if (window.Chart) {
+      if (DOM.dashboardChartFallback) DOM.dashboardChartFallback.classList.add('hidden');
+      DOM.dashboardMonthlyChart.classList.remove('hidden');
+
+      const labels = monthsData.map(m => m.label);
+      const data = monthsData.map(m => m.expense);
+
+      const backgroundColors = monthsData.map(m => {
+        if (peakMonth && m.monthKey === peakMonth.monthKey && m.expense > 0) return '#c59b27';
+        if (m.monthKey === getCurrentMonthKey()) return '#8b5d4e';
+        return '#6e473b';
+      });
+
+      if (state.charts.dashboardMonthly) {
+        state.charts.dashboardMonthly.destroy();
+      }
+
+      const ctx = DOM.dashboardMonthlyChart.getContext('2d');
+      state.charts.dashboardMonthly = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Monthly Expense (₹)',
+            data,
+            backgroundColor: backgroundColors,
+            borderRadius: 6,
+            maxBarThickness: 38
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#2b2118',
+              titleFont: { family: "'Plus Jakarta Sans', sans-serif", weight: 'bold' },
+              bodyFont: { family: "'Plus Jakarta Sans', sans-serif" },
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                label: function (ctx) {
+                  return ` Total Spent: ₹${Number(ctx.raw || 0).toLocaleString('en-IN')}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: {
+                font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600', size: 11 },
+                color: '#786452'
+              }
+            },
+            y: {
+              grid: { color: '#e5dac8' },
+              ticks: {
+                font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 },
+                color: '#786452',
+                callback: function (val) {
+                  if (val >= 1000) return `₹${(val / 1000).toFixed(0)}k`;
+                  return `₹${val}`;
+                }
+              }
+            }
+          }
+        }
+      });
+    } else {
+      renderChartFallback(DOM.dashboardChartFallback, DOM.dashboardMonthlyChart, monthsData);
+    }
+  }
+
+  function renderChartFallback(fallbackEl, canvasEl, monthsData) {
+    if (!fallbackEl) return;
+    if (canvasEl) canvasEl.classList.add('hidden');
+    fallbackEl.classList.remove('hidden');
+    fallbackEl.innerHTML = '';
+
+    const maxVal = Math.max(...monthsData.map(m => m.expense), 1);
+    monthsData.forEach(m => {
+      const heightPercent = Math.max((m.expense / maxVal) * 100, 4);
+      const isHighlight = m.expense > 0 && m.expense === maxVal;
+
+      const col = document.createElement('div');
+      col.className = 'fallback-bar-col';
+      col.innerHTML = `
+        <span class="fallback-bar-val">${m.expense > 0 ? '₹' + Math.round(m.expense) : '—'}</span>
+        <div class="fallback-bar ${isHighlight ? 'highlight' : ''}" style="height: ${heightPercent}%;"></div>
+        <span class="fallback-bar-label">${m.label.split(' ')[0]}</span>
+      `;
+      fallbackEl.appendChild(col);
+    });
+  }
+
+  // ==========================================================================
+  // FULL FINANCIAL ANALYTICS TAB
+  // ==========================================================================
+  function renderAnalyticsTab() {
+    const aggregates = getMonthlyExpenseAggregates();
+    const { monthsData, totalExpenseRecorded, totalTxCount, averageMonthly, peakMonth, topCategory, topCategoryAmount } = aggregates;
+
+    if (DOM.analyticsTotalExpense) DOM.analyticsTotalExpense.textContent = formatMoney(totalExpenseRecorded);
+    if (DOM.analyticsTotalTxCount) DOM.analyticsTotalTxCount.textContent = `${totalTxCount} debit entries`;
+    if (DOM.analyticsAverageMonthly) DOM.analyticsAverageMonthly.textContent = formatMoney(averageMonthly);
+    if (DOM.analyticsTopCategory) DOM.analyticsTopCategory.textContent = topCategory;
+    if (DOM.analyticsTopCategoryAmount) DOM.analyticsTopCategoryAmount.textContent = formatMoney(topCategoryAmount) + ' spent';
+    if (DOM.analyticsHighestMonth) DOM.analyticsHighestMonth.textContent = peakMonth ? formatMoney(peakMonth.expense) : '—';
+    if (DOM.analyticsHighestMonthName) DOM.analyticsHighestMonthName.textContent = peakMonth ? peakMonth.label : 'None';
+
+    // Populate Month filter for Category Donut
+    if (DOM.analyticsMonthFilter) {
+      const currentVal = DOM.analyticsMonthFilter.value;
+      let optionsHtml = '<option value="ALL">All Recorded Months</option>';
+      monthsData.slice().reverse().forEach(m => {
+        optionsHtml += `<option value="${m.monthKey}">${m.label}</option>`;
+      });
+      DOM.analyticsMonthFilter.innerHTML = optionsHtml;
+      if (currentVal && DOM.analyticsMonthFilter.querySelector(`option[value="${currentVal}"]`)) {
+        DOM.analyticsMonthFilter.value = currentVal;
+      }
+    }
+
+    // 1. Render Monthly History Bar Chart
+    if (window.Chart && DOM.analyticsMonthlyChart) {
+      if (DOM.analyticsMonthlyFallback) DOM.analyticsMonthlyFallback.classList.add('hidden');
+      DOM.analyticsMonthlyChart.classList.remove('hidden');
+
+      const labels = monthsData.map(m => m.label);
+      const data = monthsData.map(m => m.expense);
+      const bgColors = monthsData.map(m => {
+        if (peakMonth && m.monthKey === peakMonth.monthKey && m.expense > 0) return '#c59b27';
+        return '#6e473b';
+      });
+
+      if (state.charts.analyticsMonthly) {
+        state.charts.analyticsMonthly.destroy();
+      }
+
+      const ctx = DOM.analyticsMonthlyChart.getContext('2d');
+      state.charts.analyticsMonthly = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Total Expenses',
+            data,
+            backgroundColor: bgColors,
+            borderRadius: 6,
+            maxBarThickness: 45
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#2b2118',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                label: function (ctx) {
+                  return ` Total Spent: ₹${Number(ctx.raw || 0).toLocaleString('en-IN')}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600' }, color: '#786452' }
+            },
+            y: {
+              grid: { color: '#e5dac8' },
+              ticks: {
+                color: '#786452',
+                callback: function (val) {
+                  if (val >= 1000) return `₹${(val / 1000).toFixed(0)}k`;
+                  return `₹${val}`;
+                }
+              }
+            }
+          }
+        }
+      });
+    } else {
+      renderChartFallback(DOM.analyticsMonthlyFallback, DOM.analyticsMonthlyChart, monthsData);
+    }
+
+    // 2. Render Category Donut
+    renderAnalyticsCategoryDonut();
+
+    // 3. Render Month-by-Month Summary Table
+    if (DOM.analyticsMonthlyTableBody) {
+      DOM.analyticsMonthlyTableBody.innerHTML = '';
+      const reversedMonths = [...monthsData].filter(m => m.expense > 0 || m.income > 0).reverse();
+      if (reversedMonths.length === 0) {
+        DOM.analyticsMonthlyTableBody.innerHTML = `
+          <tr>
+            <td colspan="5" class="text-center text-muted" style="padding: 1.5rem;">No monthly history recorded yet.</td>
+          </tr>
+        `;
+        return;
+      }
+
+      reversedMonths.forEach(m => {
+        let topCat = '—';
+        let topCatAmt = 0;
+        Object.entries(m.categories).forEach(([c, val]) => {
+          if (val > topCatAmt) {
+            topCatAmt = val;
+            topCat = `${c} (${formatMoney(val)})`;
+          }
+        });
+
+        const net = m.income - m.expense;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${m.label}</strong></td>
+          <td class="passbook-debit">${m.expense > 0 ? '-' + formatMoney(m.expense) : '₹0'}</td>
+          <td class="passbook-credit">${m.income > 0 ? '+' + formatMoney(m.income) : '₹0'}</td>
+          <td style="font-weight: 800; color: ${net >= 0 ? 'var(--credit-color)' : 'var(--debit-color)'};">
+            ${net >= 0 ? '+' : ''}${formatMoney(net)}
+          </td>
+          <td>${escapeHTML(topCat)}</td>
+        `;
+        DOM.analyticsMonthlyTableBody.appendChild(tr);
+      });
+    }
+  }
+
+  function renderAnalyticsCategoryDonut() {
+    if (!DOM.analyticsCategoryChart) return;
+    const selectedMonth = DOM.analyticsMonthFilter ? DOM.analyticsMonthFilter.value : 'ALL';
+    const aggregates = getMonthlyExpenseAggregates();
+
+    let catData = {};
+    if (selectedMonth === 'ALL') {
+      catData = aggregates.categoryTotals;
+    } else {
+      const target = aggregates.monthsData.find(m => m.monthKey === selectedMonth);
+      catData = target ? target.categories : {};
+    }
+
+    const categories = Object.keys(catData);
+    const amounts = Object.values(catData);
+    const palette = ['#6e473b', '#c59b27', '#a07855', '#4e3027', '#e07a5f', '#81b29a', '#deb986', '#8d5b4c'];
+
+    if (window.Chart) {
+      if (DOM.analyticsCategoryFallback) DOM.analyticsCategoryFallback.classList.add('hidden');
+      DOM.analyticsCategoryChart.classList.remove('hidden');
+
+      if (state.charts.analyticsCategory) {
+        state.charts.analyticsCategory.destroy();
+      }
+
+      if (categories.length === 0) {
+        const ctx = DOM.analyticsCategoryChart.getContext('2d');
+        state.charts.analyticsCategory = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['No Expenses in Month'],
+            datasets: [{
+              data: [1],
+              backgroundColor: ['#e5dac8'],
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom', labels: { color: '#786452' } },
+              tooltip: { enabled: false }
+            }
+          }
+        });
+        return;
+      }
+
+      const ctx = DOM.analyticsCategoryChart.getContext('2d');
+      state.charts.analyticsCategory = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: categories,
+          datasets: [{
+            data: amounts,
+            backgroundColor: palette.slice(0, categories.length),
+            borderWidth: 2,
+            borderColor: '#ffffff',
+            hoverOffset: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600', size: 11 },
+                color: '#2b2118',
+                padding: 12
+              }
+            },
+            tooltip: {
+              backgroundColor: '#2b2118',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                label: function (ctx) {
+                  const val = ctx.raw || 0;
+                  const total = amounts.reduce((a, b) => a + b, 0);
+                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                  return ` ${ctx.label}: ₹${val.toLocaleString('en-IN')} (${pct}%)`;
+                }
+              }
+            }
+          },
+          cutout: '62%'
+        }
+      });
+    }
   }
 
   // DOWNLOAD PDF FUNCTION (NORMAL PDF FORM PRINT)
