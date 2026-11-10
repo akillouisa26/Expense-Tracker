@@ -52,174 +52,7 @@
     initFirebaseIfAvailable();
     renderAll();
     checkAppLockStatus();
-    fetchLiveExchangeRates('USD');
   });
-
-  const EXCHANGE_API_KEY = '35e0256d31c7ef56973c8994';
-  let cachedExchangeRates = null;
-
-  function fetchLiveExchangeRates(base = 'USD', isUserGenerated = false) {
-    const baseCurrency = (base && base.trim()) ? base.trim().toUpperCase() : 'USD';
-    const url = `https://v6.exchangerate-api.com/v6/${EXCHANGE_API_KEY}/latest/${baseCurrency}`;
-
-    const jsonOutput = document.getElementById('currencyJsonOutput');
-    const btnGenerate = document.getElementById('btnGenerateCurrencyData');
-    const endpointBadge = document.getElementById('currencyApiEndpointBadge');
-
-    if (endpointBadge) {
-      endpointBadge.textContent = url;
-    }
-
-    if (isUserGenerated && btnGenerate) {
-      btnGenerate.disabled = true;
-      btnGenerate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
-    }
-    if (isUserGenerated && jsonOutput) {
-      jsonOutput.textContent = `Fetching live JSON data for base "${baseCurrency}" from ExchangeRate-API...`;
-    }
-
-    return fetch(url)
-      .then(res => {
-        if (!res.ok) throw new Error(`Currency API Error: ${res.status} ${res.statusText}`);
-        return res.json();
-      })
-      .then(data => {
-        if (data.result !== 'success') {
-          throw new Error(data['error-type'] || 'Failed to retrieve exchange rates');
-        }
-
-        const rates = data.conversion_rates || {};
-        cachedExchangeRates = { ...rates, [baseCurrency]: 1 };
-
-        // Update top header ticker badge
-        const tickerEl = document.getElementById('currencyTicker');
-        if (tickerEl) {
-          if (baseCurrency === 'USD' && rates['INR']) {
-            tickerEl.textContent = `1 USD = ₹${Number(rates['INR']).toFixed(2)}`;
-          } else if (baseCurrency === 'INR' && rates['USD']) {
-            const usdVal = (1 / rates['USD']).toFixed(2);
-            tickerEl.textContent = `1 USD = ₹${usdVal}`;
-          } else if (rates['INR']) {
-            tickerEl.textContent = `1 ${baseCurrency} = ₹${Number(rates['INR']).toFixed(2)}`;
-          } else {
-            tickerEl.textContent = `Forex: ${baseCurrency}`;
-          }
-        }
-
-        // Calculate INR equivalents for standard quick overview cards
-        let usdInr = 0, eurInr = 0, gbpInr = 0, aedInr = 0;
-        if (baseCurrency === 'INR') {
-          usdInr = rates['USD'] ? (1 / rates['USD']) : 95.06;
-          eurInr = rates['EUR'] ? (1 / rates['EUR']) : 106.63;
-          gbpInr = rates['GBP'] ? (1 / rates['GBP']) : 126.56;
-          aedInr = rates['AED'] ? (1 / rates['AED']) : 25.88;
-        } else if (baseCurrency === 'USD') {
-          usdInr = rates['INR'] || 95.06;
-          eurInr = (rates['INR'] || 95.06) / (rates['EUR'] || 0.89);
-          gbpInr = (rates['INR'] || 95.06) / (rates['GBP'] || 0.75);
-          aedInr = (rates['INR'] || 95.06) / (rates['AED'] || 3.67);
-        } else {
-          const inrPerBase = rates['INR'] || 1;
-          usdInr = inrPerBase / (rates['USD'] || 1);
-          eurInr = inrPerBase / (rates['EUR'] || 1);
-          gbpInr = inrPerBase / (rates['GBP'] || 1);
-          aedInr = inrPerBase / (rates['AED'] || 1);
-        }
-
-        const cardUsd = document.getElementById('rateCardUsdInr');
-        const cardEur = document.getElementById('rateCardEurInr');
-        const cardGbp = document.getElementById('rateCardGbpInr');
-        const cardAed = document.getElementById('rateCardAedInr');
-
-        if (cardUsd) cardUsd.textContent = `₹${usdInr.toFixed(2)}`;
-        if (cardEur) cardEur.textContent = `₹${eurInr.toFixed(2)}`;
-        if (cardGbp) cardGbp.textContent = `₹${gbpInr.toFixed(2)}`;
-        if (cardAed) cardAed.textContent = `₹${aedInr.toFixed(2)}`;
-
-        // Update JSON Output viewer if element is present
-        if (jsonOutput) {
-          jsonOutput.textContent = JSON.stringify(data, null, 2);
-        }
-
-        // Update quick currency converter
-        updateQuickConverter();
-
-        if (isUserGenerated) {
-          showToast(`Live exchange rates updated for ${baseCurrency}!`, 'success');
-        }
-
-        return data;
-      })
-      .catch(err => {
-        console.warn('ExchangeRate API Fetch Warning:', err);
-        const tickerEl = document.getElementById('currencyTicker');
-        if (tickerEl && !isUserGenerated) tickerEl.textContent = '1 USD = ₹95.06';
-
-        if (jsonOutput && isUserGenerated) {
-          jsonOutput.textContent = JSON.stringify({
-            error: true,
-            message: err.message || 'Failed to fetch exchange rates for requested base currency.',
-            baseRequested: baseCurrency
-          }, null, 2);
-        }
-        if (isUserGenerated) {
-          showToast(`Failed to retrieve rates: ${err.message}`, 'danger');
-        }
-      })
-      .finally(() => {
-        if (isUserGenerated && btnGenerate) {
-          btnGenerate.disabled = false;
-          btnGenerate.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Update Rates';
-        }
-      });
-  }
-
-  function updateQuickConverter() {
-    const amountInput = document.getElementById('converterAmount');
-    const fromSelect = document.getElementById('converterFromCurrency');
-    const toSelect = document.getElementById('converterToCurrency');
-    const resultEl = document.getElementById('converterResult');
-
-    if (!amountInput || !fromSelect || !toSelect || !resultEl) return;
-
-    const amount = parseFloat(amountInput.value) || 0;
-    const from = fromSelect.value;
-    const to = toSelect.value;
-
-    if (from === to) {
-      resultEl.textContent = `${getCurrencySymbol(to)} ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      return;
-    }
-
-    const fallbackToUSD = {
-      USD: 1,
-      INR: 0.01052,
-      EUR: 1.09,
-      GBP: 1.30,
-      AED: 0.272
-    };
-
-    let converted = 0;
-    if (cachedExchangeRates && cachedExchangeRates[from] && cachedExchangeRates[to]) {
-      converted = (amount / cachedExchangeRates[from]) * cachedExchangeRates[to];
-    } else {
-      const amountInUSD = amount * (fallbackToUSD[from] || 1);
-      converted = amountInUSD / (fallbackToUSD[to] || 1);
-    }
-
-    resultEl.textContent = `${getCurrencySymbol(to)} ${converted.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  }
-
-  function getCurrencySymbol(code) {
-    switch (code) {
-      case 'INR': return '₹';
-      case 'USD': return '$';
-      case 'EUR': return '€';
-      case 'GBP': return '£';
-      case 'AED': return 'AED';
-      default: return code;
-    }
-  }
 
   function getCurrentMonthKey(dateObj = new Date()) {
     const year = dateObj.getFullYear();
@@ -270,17 +103,7 @@
 
     DOM.btnCloudSync = document.getElementById('btnCloudSync');
     DOM.cloudSyncBadge = document.getElementById('cloudSyncBadge');
-    
-    // Top Right Corner Currency Badge & Generator
-    DOM.currencyWidget = document.getElementById('currencyWidget');
-    DOM.btnOpenCurrencyGenerator = document.getElementById('btnOpenCurrencyGenerator');
-    DOM.modalCurrencyGenerator = document.getElementById('modalCurrencyGenerator');
-    DOM.currencyBaseSelect = document.getElementById('currencyBaseSelect');
-    DOM.btnGenerateCurrencyData = document.getElementById('btnGenerateCurrencyData');
-    DOM.currencyJsonOutput = document.getElementById('currencyJsonOutput');
-    DOM.converterAmount = document.getElementById('converterAmount');
-    DOM.converterFromCurrency = document.getElementById('converterFromCurrency');
-    DOM.converterToCurrency = document.getElementById('converterToCurrency');
+
 
     // Top Right Corner Plus Button & Title
     DOM.brandTitle = document.getElementById('brandTitle');
@@ -476,39 +299,6 @@
   }
 
   function setupEventListeners() {
-    // Currency Badge & Live Forex Data Generator Trigger
-    const openCurrencyModalHandler = () => {
-      if (DOM.modalCurrencyGenerator) {
-        DOM.modalCurrencyGenerator.showModal();
-        const baseVal = DOM.currencyBaseSelect ? DOM.currencyBaseSelect.value : 'USD';
-        fetchLiveExchangeRates(baseVal, true);
-      }
-    };
-
-    if (DOM.currencyWidget) DOM.currencyWidget.addEventListener('click', openCurrencyModalHandler);
-    if (DOM.btnOpenCurrencyGenerator) DOM.btnOpenCurrencyGenerator.addEventListener('click', openCurrencyModalHandler);
-
-    if (DOM.btnGenerateCurrencyData) {
-      DOM.btnGenerateCurrencyData.addEventListener('click', (e) => {
-        e.preventDefault();
-        const baseVal = DOM.currencyBaseSelect ? DOM.currencyBaseSelect.value : 'USD';
-        fetchLiveExchangeRates(baseVal, true);
-      });
-    }
-
-    if (DOM.currencyBaseSelect) {
-      DOM.currencyBaseSelect.addEventListener('change', () => {
-        const baseVal = DOM.currencyBaseSelect.value;
-        fetchLiveExchangeRates(baseVal, true);
-      });
-    }
-
-    // Quick Currency Converter Live Updates
-    ['input', 'change'].forEach(evtName => {
-      if (DOM.converterAmount) DOM.converterAmount.addEventListener(evtName, updateQuickConverter);
-      if (DOM.converterFromCurrency) DOM.converterFromCurrency.addEventListener(evtName, updateQuickConverter);
-      if (DOM.converterToCurrency) DOM.converterToCurrency.addEventListener(evtName, updateQuickConverter);
-    });
 
     // Top Right Plus Button
     DOM.btnTopPlusAction.addEventListener('click', () => DOM.modalPlusAction.showModal());
@@ -903,7 +693,7 @@
       const isExpense = t.type === 'EXPENSE';
       const rowBalance = balanceMap.get(t.id) || 0;
 
-      let segName = 'General';
+      let segName = t.segregationName || 'General';
       const seg = state.segregations.find(s => s.id === t.segregationId);
       if (seg) segName = seg.name;
 
@@ -1158,26 +948,48 @@
     }
     DOM.txSegregationSelect.innerHTML = options;
 
-    const allOptions = state.segregations.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
+    const activeIds = new Set(state.segregations.map(s => s.id));
+    const extraCategories = [];
+    state.transactions.forEach(t => {
+      if (t.segregationId && !activeIds.has(t.segregationId)) {
+        if (!extraCategories.some(c => c.id === t.segregationId)) {
+          extraCategories.push({
+            id: t.segregationId,
+            name: `${t.segregationName || 'Category'} (Deleted)`
+          });
+        }
+      }
+    });
+
+    const allOptions = [...state.segregations, ...extraCategories]
+      .map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`)
+      .join('');
     DOM.filterSegregation.innerHTML = '<option value="ALL">All Categories</option>' + allOptions;
   }
 
   function updateTransactionModalTitleAndCategory(type, preselectedSegId) {
     if (preselectedSegId) {
-      const seg = state.segregations.find(s => s.id === preselectedSegId);
-      if (seg) {
+      let seg = state.segregations.find(s => s.id === preselectedSegId);
+      let segName = seg ? seg.name : null;
+      if (!seg) {
+        const relatedTx = state.transactions.find(t => t.segregationId === preselectedSegId);
+        if (relatedTx && relatedTx.segregationName) {
+          segName = `${relatedTx.segregationName} (Deleted)`;
+        }
+      }
+      if (segName) {
         if (type === 'EXPENSE') {
-          DOM.transactionModalTitle.textContent = `Debit (Spend Money on ${seg.name})`;
+          DOM.transactionModalTitle.textContent = `Debit (Spend Money on ${segName})`;
         } else {
-          DOM.transactionModalTitle.textContent = `Credit (Add Money to ${seg.name})`;
+          DOM.transactionModalTitle.textContent = `Credit (Add Money to ${segName})`;
         }
 
-        DOM.txSegregationSelect.innerHTML = `<option value="${seg.id}">${escapeHTML(seg.name)}</option>`;
-        DOM.txSegregationSelect.value = seg.id;
+        DOM.txSegregationSelect.innerHTML = `<option value="${preselectedSegId}">${escapeHTML(segName)}</option>`;
+        DOM.txSegregationSelect.value = preselectedSegId;
         DOM.txSegregationSelect.classList.add('hidden');
 
         if (DOM.txSegregationReadOnly) {
-          DOM.txSegregationReadOnly.value = seg.name;
+          DOM.txSegregationReadOnly.value = segName;
           DOM.txSegregationReadOnly.classList.remove('hidden');
         }
         return;
@@ -1414,19 +1226,22 @@
 
     // PREVENT EXPENSE FROM EXCEEDING REMAINING BALANCE (FLOOR IS 0)
     if (type === 'EXPENSE') {
-      const metrics = getSegregationMetrics(segId);
-      let currentAvailable = metrics.remaining;
-      if (txId) {
-        const oldTx = state.transactions.find(t => t.id === txId);
-        if (oldTx && oldTx.segregationId === segId && oldTx.type === 'EXPENSE') {
-          currentAvailable += Number(oldTx.amount);
+      const segExists = state.segregations.some(s => s.id === segId);
+      if (segExists) {
+        const metrics = getSegregationMetrics(segId);
+        let currentAvailable = metrics.remaining;
+        if (txId) {
+          const oldTx = state.transactions.find(t => t.id === txId);
+          if (oldTx && oldTx.segregationId === segId && oldTx.type === 'EXPENSE') {
+            currentAvailable += Number(oldTx.amount);
+          }
         }
-      }
 
-      if (amount > currentAvailable) {
-        showAlertModal('Insufficient Balance!', 'Insufficient Balance!');
-        showToast('Insufficient Balance!', 'danger');
-        return;
+        if (amount > currentAvailable) {
+          showAlertModal('Insufficient Balance!', 'Insufficient Balance!');
+          showToast('Insufficient Balance!', 'danger');
+          return;
+        }
       }
     }
 
@@ -1439,6 +1254,9 @@
       if (tx) {
         tx.type = type;
         tx.segregationId = segId;
+        if (targetSeg) {
+          tx.segregationName = targetSeg.name;
+        }
         tx.amount = amount;
         tx.date = date;
         tx.note = note;
@@ -1459,6 +1277,7 @@
           if (linkedTx) {
             if (destSeg) {
               linkedTx.segregationId = destSeg.id;
+              linkedTx.segregationName = destSeg.name;
               linkedTx.amount = amount;
               linkedTx.date = date;
               linkedTx.monthKey = getCurrentMonthKey(new Date(date));
@@ -1477,6 +1296,7 @@
           state.transactions.push({
             id: autoTxId,
             segregationId: destSeg.id,
+            segregationName: destSeg.name,
             type: 'INCOME',
             amount: amount,
             date: date,
@@ -1493,6 +1313,7 @@
       const txObj = {
         id: newTxId,
         segregationId: segId,
+        segregationName: targetSeg ? targetSeg.name : '',
         type,
         amount,
         date,
@@ -1508,6 +1329,7 @@
         const autoTx = {
           id: autoTxId,
           segregationId: destSeg.id,
+          segregationName: destSeg.name,
           type: 'INCOME',
           amount: amount,
           date: date,
@@ -1548,6 +1370,13 @@
         seg.name = name;
         seg.allocatedFund = allocatedFund;
 
+        // Keep segregationName updated on existing transactions
+        state.transactions.forEach(t => {
+          if (t.segregationId === id) {
+            t.segregationName = name;
+          }
+        });
+
         // Also update initial creation transaction amount so transaction history matches allocated fund!
         const initTx = state.transactions.find(t => t.segregationId === id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
         if (initTx) {
@@ -1569,6 +1398,7 @@
       state.transactions.push({
         id: 'tx_create_' + Date.now(),
         segregationId: newSegId,
+        segregationName: name,
         type: 'INCOME',
         amount: allocatedFund,
         date: todayStr,
@@ -1608,14 +1438,24 @@
   }
 
   function deleteSegregation(segId) {
-    if (!confirm('Delete this category and all its history?')) return;
+    const segToDelete = state.segregations.find(s => s.id === segId);
+    const segName = segToDelete ? segToDelete.name : 'Category';
+    if (!confirm(`Delete category "${segName}"? Its transaction history will be preserved in the overall statement.`)) return;
+
+    // Preserve category name on all related transactions before removing the category
+    state.transactions.forEach(t => {
+      if (t.segregationId === segId && !t.segregationName) {
+        t.segregationName = segName;
+      }
+    });
+
     state.segregations = state.segregations.filter(s => s.id !== segId);
-    state.transactions = state.transactions.filter(t => t.segregationId !== segId);
+    // DO NOT filter state.transactions! Transactions are preserved in overall history.
     saveSegregationsToStorage();
     saveTransactionsToStorage();
     DOM.modalSegregationDetail.close();
     renderAll();
-    showToast('Category deleted', 'success');
+    showToast(`Category "${segName}" deleted (transactions kept in history)`, 'success');
   }
 
   function switchAuthTab(mode) {

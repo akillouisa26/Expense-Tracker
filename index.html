@@ -64,17 +64,6 @@
         <h2 id="topPageTitle" class="top-page-title">Dashboard</h2>
 
         <div class="top-right-actions">
-          <!-- LIVE CURRENCY RATES WIDGET BADGE -->
-          <div id="currencyWidget" class="currency-badge cursor-pointer" title="Click to View Live Exchange Rates via ExchangeRate-API" style="cursor: pointer;">
-            <i class="fa-solid fa-coins" style="color: #d97706;"></i>
-            <span id="currencyTicker">1 USD = ₹--</span>
-          </div>
-
-          <!-- EXPLICIT CURRENCY DATA GENERATOR BUTTON -->
-          <button id="btnOpenCurrencyGenerator" class="btn btn-outline-brown btn-sm" style="font-weight: 700; display: inline-flex; align-items: center; gap: 0.4rem;" title="Open Live Currency Rates & Forex Generator">
-            <i class="fa-solid fa-arrow-right-arrow-left" style="color: #16a34a;"></i> Exchange Rates
-          </button>
-
           <!-- ADD ENTRY BUTTON (VISIBLE ONLY ON DASHBOARD PAGE) -->
           <button id="btnTopPlusAction" class="btn btn-plus-topright">
             <i class="fa-solid fa-plus"></i> Add Entry
@@ -491,87 +480,6 @@
       </div>
     </dialog>
 
-
-    <!-- MODAL: LIVE CURRENCY EXCHANGE RATES GENERATOR (EXCHANGERATE-API) -->
-    <dialog id="modalCurrencyGenerator" class="modal-dialog">
-      <div class="modal-content large-modal">
-        <div class="modal-header">
-          <h2 class="modal-title"><i class="fa-solid fa-coins" style="color: #d97706;"></i> Live Forex & Currency Rates Generator</h2>
-          <button class="btn-close-modal" data-close-modal="modalCurrencyGenerator">&times;</button>
-        </div>
-        <div class="modal-body">
-          <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem;">
-            Select a base currency (e.g., <strong>USD</strong>, <strong>INR</strong>, <strong>EUR</strong>, <strong>GBP</strong>, <strong>AED</strong>) to retrieve real-time conversion rates directly from ExchangeRate-API (v6).
-          </p>
-
-          <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
-            <select id="currencyBaseSelect" class="form-input" style="flex: 1; min-width: 150px; font-weight: 700;">
-              <option value="USD" selected>USD - US Dollar</option>
-              <option value="INR">INR - Indian Rupee</option>
-              <option value="EUR">EUR - Euro</option>
-              <option value="GBP">GBP - British Pound</option>
-              <option value="AED">AED - UAE Dirham</option>
-              <option value="SAR">SAR - Saudi Riyal</option>
-              <option value="SGD">SGD - Singapore Dollar</option>
-              <option value="CAD">CAD - Canadian Dollar</option>
-              <option value="AUD">AUD - Australian Dollar</option>
-              <option value="JPY">JPY - Japanese Yen</option>
-            </select>
-            <button id="btnGenerateCurrencyData" class="btn btn-brown" style="white-space: nowrap;">
-              <i class="fa-solid fa-arrows-rotate"></i> Update Rates
-            </button>
-          </div>
-
-          <!-- Quick Exchange Rate Cards -->
-          <div id="currencyMetricsContainer" class="segregation-detail-metrics" style="margin-bottom: 1.25rem;">
-            <div class="detail-metric-card">
-              <span class="label">1 USD in INR</span>
-              <h3 id="rateCardUsdInr">₹--</h3>
-            </div>
-            <div class="detail-metric-card">
-              <span class="label">1 EUR in INR</span>
-              <h3 id="rateCardEurInr">₹--</h3>
-            </div>
-            <div class="detail-metric-card success">
-              <span class="label">1 GBP in INR</span>
-              <h3 id="rateCardGbpInr">₹--</h3>
-            </div>
-            <div class="detail-metric-card">
-              <span class="label">1 AED in INR</span>
-              <h3 id="rateCardAedInr">₹--</h3>
-            </div>
-          </div>
-
-          <!-- Quick Currency Converter -->
-          <div style="background: var(--bg-card-hover); padding: 1rem 1.25rem; border-radius: 8px; border: 1.5px solid var(--border-color); margin-bottom: 1.25rem;">
-            <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--brown-primary); margin-bottom: 0.75rem;">
-              <i class="fa-solid fa-calculator"></i> Quick Currency Converter
-            </h4>
-            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-              <input type="number" id="converterAmount" class="form-input" value="1000" min="1" step="any" style="width: 130px; font-weight: 700;" placeholder="Amount" />
-              <select id="converterFromCurrency" class="form-input" style="width: 110px; font-weight: 600;">
-                <option value="INR" selected>INR (₹)</option>
-                <option value="USD">USD ($)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-                <option value="AED">AED</option>
-              </select>
-              <span style="font-weight: 800; color: var(--text-muted); font-size: 1.1rem;">=</span>
-              <select id="converterToCurrency" class="form-input" style="width: 110px; font-weight: 600;">
-                <option value="USD" selected>USD ($)</option>
-                <option value="INR">INR (₹)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-                <option value="AED">AED</option>
-              </select>
-              <div id="converterResult" style="font-size: 1.1rem; font-weight: 800; color: var(--brown-primary); margin-left: auto; padding: 0.4rem 0.8rem; background: white; border-radius: 6px; border: 1.5px solid var(--border-color);">
-                $0.00
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </dialog>
 
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toastContainer" class="toast-container"></div>
