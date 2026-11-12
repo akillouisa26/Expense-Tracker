@@ -1231,13 +1231,13 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #fffdf7 0%, #fef3c7 100%);
-  border: 1.5px solid #fde68a;
+  background-color: #fdfaf3;
+  border: 1.5px solid #e7cca8;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.14);
+  box-shadow: 0 1px 3px rgba(110, 71, 59, 0.06);
 }
 
 .bell-svg-icon {
