@@ -41,7 +41,6 @@
     },
     isAppUnlocked: false,
     isInitialCloudSyncDone: false,
-    isReminderBannerDismissed: false,
     charts: {
       singleExpense: null
     }
@@ -134,7 +133,6 @@
     DOM.reminderBannerTitle = document.getElementById('reminderBannerTitle');
     DOM.reminderBannerSubtitle = document.getElementById('reminderBannerSubtitle');
     DOM.btnGoToNotes = document.getElementById('btnGoToNotes');
-    DOM.btnDismissReminderBanner = document.getElementById('btnDismissReminderBanner');
     DOM.dashboardRemindersList = document.getElementById('dashboardRemindersList');
 
     // Dashboard Monthly Expense Overview Card Elements
@@ -431,14 +429,6 @@
     // Dashboard Reminders Navigation & Dismiss
     if (DOM.btnGoToNotes) {
       DOM.btnGoToNotes.addEventListener('click', () => switchTab('notes'));
-    }
-    if (DOM.btnDismissReminderBanner) {
-      DOM.btnDismissReminderBanner.addEventListener('click', () => {
-        state.isReminderBannerDismissed = true;
-        if (DOM.dashboardRemindersBanner) {
-          DOM.dashboardRemindersBanner.classList.add('hidden');
-        }
-      });
     }
 
     // Edit Personal Note Form Submit
@@ -952,7 +942,6 @@
     note.date = date;
     note.amount = amount;
 
-    state.isReminderBannerDismissed = false;
     saveNotesToStorage();
     if (DOM.modalEditNote) DOM.modalEditNote.close();
     renderPersonalNotesTab();
@@ -981,7 +970,6 @@
     };
 
     state.personalNotes.unshift(noteObj);
-    state.isReminderBannerDismissed = false;
     saveNotesToStorage();
     DOM.personalNoteTitleInput.value = '';
     DOM.personalNoteAmountInput.value = '';
@@ -997,7 +985,6 @@
     const note = state.personalNotes.find(n => n.id === noteId);
     if (!note) return;
     note.isCompleted = !note.isCompleted;
-    state.isReminderBannerDismissed = false;
     saveNotesToStorage();
     renderPersonalNotesTab();
     renderDashboardReminders();
@@ -1007,7 +994,6 @@
   function deletePersonalNote(noteId) {
     if (!confirm('Delete this note?')) return;
     state.personalNotes = state.personalNotes.filter(n => n.id !== noteId);
-    state.isReminderBannerDismissed = false;
     saveNotesToStorage();
     renderPersonalNotesTab();
     renderDashboardReminders();
@@ -1019,11 +1005,6 @@
   // ==========================================================================
   function renderDashboardReminders() {
     if (!DOM.dashboardRemindersBanner || !DOM.dashboardRemindersList) return;
-
-    if (state.isReminderBannerDismissed) {
-      DOM.dashboardRemindersBanner.classList.add('hidden');
-      return;
-    }
 
     const activeNotes = state.personalNotes.filter(n => !n.isCompleted);
     if (activeNotes.length === 0) {
