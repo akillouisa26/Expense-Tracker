@@ -80,15 +80,17 @@
         <div id="dashboardRemindersBanner" class="dashboard-reminder-banner hidden">
           <div class="reminder-banner-header">
             <div class="reminder-header-left">
-              <span class="reminder-bell-icon"><i class="fa-solid fa-bell"></i></span>
               <div class="reminder-banner-text">
                 <strong id="reminderBannerTitle">Notes & Reminders</strong>
                 <span id="reminderBannerSubtitle" class="text-muted">You have upcoming tasks</span>
               </div>
             </div>
-            <button class="btn btn-outline-brown btn-sm" id="btnGoToNotes">
-              View All Notes <i class="fa-solid fa-arrow-right"></i>
-            </button>
+            <div class="reminder-header-actions" style="display: flex; align-items: center; gap: 0.6rem;">
+              <button class="btn btn-outline-brown btn-sm" id="btnGoToNotes">
+                View All Notes <i class="fa-solid fa-arrow-right"></i>
+              </button>
+              <button class="btn-dismiss-reminder" id="btnDismissReminderBanner" title="Dismiss notification" aria-label="Dismiss notification">&times;</button>
+            </div>
           </div>
           <div id="dashboardRemindersList" class="reminder-chips-list">
             <!-- Rendered dynamically -->
@@ -559,6 +561,38 @@
         </form>
       </div>
     </dialog>
+ 
+     <!-- MODAL: EDIT NOTE -->
+     <dialog id="modalEditNote" class="modal-dialog">
+       <div class="modal-content">
+         <div class="modal-header">
+           <h2 class="modal-title"><i class="fa-solid fa-pen-to-square"></i> Edit Note</h2>
+           <button class="btn-close-modal" data-close-modal="modalEditNote">&times;</button>
+         </div>
+         <form id="editNoteForm" class="modal-body">
+           <input type="hidden" id="editNoteIdInput" />
+           <div class="form-group mb-3">
+             <label for="editNoteTitleInput">Note Title</label>
+             <input type="text" id="editNoteTitleInput" class="form-input" placeholder="e.g. Buy Shoes, Pay Bill..." required />
+           </div>
+
+           <div class="form-group mb-3">
+             <label for="editNoteDateInput">Target / Reminder Date</label>
+             <input type="date" id="editNoteDateInput" class="form-input" required />
+           </div>
+
+           <div class="form-group mb-3">
+             <label for="editNoteAmountInput">Money Amount (₹)</label>
+             <input type="number" id="editNoteAmountInput" class="form-input" min="0" step="any" placeholder="0" required />
+           </div>
+
+           <div class="modal-footer">
+             <button type="button" class="btn btn-outline-brown" data-close-modal="modalEditNote">Cancel</button>
+             <button type="submit" class="btn btn-brown">Save Changes</button>
+           </div>
+         </form>
+       </div>
+     </dialog>
 
 
     <!-- TOAST NOTIFICATION CONTAINER -->

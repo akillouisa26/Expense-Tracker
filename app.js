@@ -41,6 +41,7 @@
     },
     isAppUnlocked: false,
     isInitialCloudSyncDone: false,
+    isReminderBannerDismissed: false,
     charts: {
       singleExpense: null
     }
@@ -133,6 +134,7 @@
     DOM.reminderBannerTitle = document.getElementById('reminderBannerTitle');
     DOM.reminderBannerSubtitle = document.getElementById('reminderBannerSubtitle');
     DOM.btnGoToNotes = document.getElementById('btnGoToNotes');
+    DOM.btnDismissReminderBanner = document.getElementById('btnDismissReminderBanner');
     DOM.dashboardRemindersList = document.getElementById('dashboardRemindersList');
 
     // Dashboard Monthly Expense Overview Card Elements
@@ -179,6 +181,12 @@
     DOM.personalNoteAmountInput = document.getElementById('personalNoteAmountInput');
     DOM.btnSavePersonalNote = document.getElementById('btnSavePersonalNote');
     DOM.savedNotesContainer = document.getElementById('savedNotesContainer');
+    DOM.modalEditNote = document.getElementById('modalEditNote');
+    DOM.editNoteForm = document.getElementById('editNoteForm');
+    DOM.editNoteIdInput = document.getElementById('editNoteIdInput');
+    DOM.editNoteTitleInput = document.getElementById('editNoteTitleInput');
+    DOM.editNoteDateInput = document.getElementById('editNoteDateInput');
+    DOM.editNoteAmountInput = document.getElementById('editNoteAmountInput');
     if (DOM.personalNoteDateInput) {
       DOM.personalNoteDateInput.value = new Date().toISOString().split('T')[0];
     }
@@ -420,9 +428,22 @@
     // PDF Download Button
     DOM.btnDownloadPDF.addEventListener('click', handleDownloadPDF);
 
-    // Dashboard Reminders Navigation
+    // Dashboard Reminders Navigation & Dismiss
     if (DOM.btnGoToNotes) {
       DOM.btnGoToNotes.addEventListener('click', () => switchTab('notes'));
+    }
+    if (DOM.btnDismissReminderBanner) {
+      DOM.btnDismissReminderBanner.addEventListener('click', () => {
+        state.isReminderBannerDismissed = true;
+        if (DOM.dashboardRemindersBanner) {
+          DOM.dashboardRemindersBanner.classList.add('hidden');
+        }
+      });
+    }
+
+    // Edit Personal Note Form Submit
+    if (DOM.editNoteForm) {
+      DOM.editNoteForm.addEventListener('submit', handleSaveEditedNote);
     }
 
     // Monthly Expense Overview Controls
@@ -840,9 +861,14 @@
       }
 
       card.innerHTML = `
-        <button class="btn-delete-note" data-note-id="${note.id}" title="Delete Note">
-          &times;
-        </button>
+        <div class="note-top-actions">
+          <button class="btn-edit-note" data-note-id="${note.id}" title="Edit Note">
+            <i class="fa-solid fa-pen-to-square"></i>
+          </button>
+          <button class="btn-delete-note" data-note-id="${note.id}" title="Delete Note">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
         <div class="note-header-row">
           <h4 class="note-card-title">${escapeHTML(note.title)}</h4>
         </div>
@@ -863,6 +889,13 @@
           ${dateBadgeHtml}
         </div>
       `;
+
+      const editBtn = card.querySelector('.btn-edit-note');
+      if (editBtn) {
+        editBtn.addEventListener('click', () => {
+          openEditNoteModal(note.id);
+        });
+      }
 
       card.querySelector('.btn-delete-note').addEventListener('click', () => {
         deletePersonalNote(note.id);
@@ -888,6 +921,45 @@
     });
   }
 
+  function openEditNoteModal(noteId) {
+    const note = state.personalNotes.find(n => n.id === noteId);
+    if (!note || !DOM.modalEditNote) return;
+
+    if (DOM.editNoteIdInput) DOM.editNoteIdInput.value = note.id;
+    if (DOM.editNoteTitleInput) DOM.editNoteTitleInput.value = note.title;
+    if (DOM.editNoteDateInput) DOM.editNoteDateInput.value = note.date || new Date().toISOString().split('T')[0];
+    if (DOM.editNoteAmountInput) DOM.editNoteAmountInput.value = note.amount !== undefined ? note.amount : '';
+
+    DOM.modalEditNote.showModal();
+  }
+
+  function handleSaveEditedNote(e) {
+    e.preventDefault();
+    const noteId = DOM.editNoteIdInput ? DOM.editNoteIdInput.value : '';
+    const note = state.personalNotes.find(n => n.id === noteId);
+    if (!note) return;
+
+    const title = DOM.editNoteTitleInput ? DOM.editNoteTitleInput.value.trim() : '';
+    const date = DOM.editNoteDateInput ? DOM.editNoteDateInput.value : '';
+    const amount = DOM.editNoteAmountInput ? (parseFloat(DOM.editNoteAmountInput.value) || 0) : 0;
+
+    if (!title) {
+      showToast('Please enter note title', 'danger');
+      return;
+    }
+
+    note.title = title;
+    note.date = date;
+    note.amount = amount;
+
+    state.isReminderBannerDismissed = false;
+    saveNotesToStorage();
+    if (DOM.modalEditNote) DOM.modalEditNote.close();
+    renderPersonalNotesTab();
+    renderDashboardReminders();
+    showToast('Note updated successfully!', 'success');
+  }
+
   function handleSavePersonalNote() {
     const title = DOM.personalNoteTitleInput.value.trim();
     const amount = parseFloat(DOM.personalNoteAmountInput.value) || 0;
@@ -909,6 +981,7 @@
     };
 
     state.personalNotes.unshift(noteObj);
+    state.isReminderBannerDismissed = false;
     saveNotesToStorage();
     DOM.personalNoteTitleInput.value = '';
     DOM.personalNoteAmountInput.value = '';
@@ -924,6 +997,7 @@
     const note = state.personalNotes.find(n => n.id === noteId);
     if (!note) return;
     note.isCompleted = !note.isCompleted;
+    state.isReminderBannerDismissed = false;
     saveNotesToStorage();
     renderPersonalNotesTab();
     renderDashboardReminders();
@@ -933,6 +1007,7 @@
   function deletePersonalNote(noteId) {
     if (!confirm('Delete this note?')) return;
     state.personalNotes = state.personalNotes.filter(n => n.id !== noteId);
+    state.isReminderBannerDismissed = false;
     saveNotesToStorage();
     renderPersonalNotesTab();
     renderDashboardReminders();
@@ -945,6 +1020,11 @@
   function renderDashboardReminders() {
     if (!DOM.dashboardRemindersBanner || !DOM.dashboardRemindersList) return;
 
+    if (state.isReminderBannerDismissed) {
+      DOM.dashboardRemindersBanner.classList.add('hidden');
+      return;
+    }
+
     const activeNotes = state.personalNotes.filter(n => !n.isCompleted);
     if (activeNotes.length === 0) {
       DOM.dashboardRemindersBanner.classList.add('hidden');
@@ -955,30 +1035,46 @@
     let dueTodayCount = 0;
     let overdueCount = 0;
 
+    const needingAttention = [];
     activeNotes.forEach(n => {
-      if (n.date === todayStr) dueTodayCount++;
-      else if (n.date < todayStr) overdueCount++;
+      if (!n.date) return;
+      if (n.date === todayStr) {
+        dueTodayCount++;
+        needingAttention.push(n);
+      } else if (n.date < todayStr) {
+        overdueCount++;
+        needingAttention.push(n);
+      }
     });
+
+    // Only show notification if any notification is actually needed (due today or overdue)
+    if (dueTodayCount === 0 && overdueCount === 0) {
+      DOM.dashboardRemindersBanner.classList.add('hidden');
+      return;
+    }
 
     DOM.dashboardRemindersBanner.classList.remove('hidden');
 
-    if (overdueCount > 0 || dueTodayCount > 0) {
-      DOM.reminderBannerTitle.textContent = `🔔 ${dueTodayCount + overdueCount} Task${(dueTodayCount + overdueCount) > 1 ? 's' : ''} Need Attention!`;
+    const totalNeeded = dueTodayCount + overdueCount;
+    // Bell icon and emoji removed per user request
+    DOM.reminderBannerTitle.textContent = `${totalNeeded} Task${totalNeeded > 1 ? 's' : ''} Need Attention`;
+
+    if (dueTodayCount > 0 && overdueCount > 0) {
       DOM.reminderBannerSubtitle.textContent = `${dueTodayCount} due today, ${overdueCount} overdue. Check your scheduled tasks.`;
+    } else if (dueTodayCount > 0) {
+      DOM.reminderBannerSubtitle.textContent = `${dueTodayCount} task${dueTodayCount > 1 ? 's' : ''} due today. Check your scheduled tasks.`;
     } else {
-      DOM.reminderBannerTitle.textContent = `📌 Scheduled Notes & Reminders (${activeNotes.length})`;
-      DOM.reminderBannerSubtitle.textContent = `You have ${activeNotes.length} active scheduled task${activeNotes.length > 1 ? 's' : ''}`;
+      DOM.reminderBannerSubtitle.textContent = `${overdueCount} task${overdueCount > 1 ? 's' : ''} overdue. Check your scheduled tasks.`;
     }
 
     DOM.dashboardRemindersList.innerHTML = '';
-    // Sort upcoming/overdue notes chronologically
-    const sortedNotes = [...activeNotes].sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Sort notes needing attention chronologically (oldest overdue first)
+    const sortedNotes = [...needingAttention].sort((a, b) => new Date(a.date) - new Date(b.date));
     sortedNotes.slice(0, 6).forEach(note => {
       const isToday = note.date === todayStr;
-      const isOverdue = note.date < todayStr;
       const statusBadge = isToday
         ? `<span class="badge-today"><i class="fa-solid fa-clock"></i> Today</span>`
-        : (isOverdue ? `<span class="badge-overdue"><i class="fa-solid fa-triangle-exclamation"></i> Overdue</span>` : `<span class="badge-upcoming">${note.date}</span>`);
+        : `<span class="badge-overdue"><i class="fa-solid fa-triangle-exclamation"></i> Overdue</span>`;
 
       const chip = document.createElement('div');
       chip.className = 'reminder-chip';
