@@ -81,7 +81,17 @@
           <div class="reminder-banner-header">
             <div class="reminder-header-left">
               <div class="reminder-theme-bell" aria-hidden="true">
-                <i class="fa-solid fa-bell"></i>
+                <svg class="bell-svg-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <linearGradient id="bellStrokeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#a07855" />
+                      <stop offset="100%" stop-color="#6e473b" />
+                    </linearGradient>
+                  </defs>
+                  <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" fill="rgba(197, 155, 39, 0.15)" stroke="url(#bellStrokeGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" stroke="url(#bellStrokeGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  <circle cx="18" cy="6" r="3.5" fill="#c59b27" stroke="#ffffff" stroke-width="1.5" />
+                </svg>
               </div>
               <div class="reminder-banner-text">
                 <strong id="reminderBannerTitle">Notes & Reminders</strong>
