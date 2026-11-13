@@ -209,7 +209,7 @@
               <select id="filterType" class="form-input">
                 <option value="ALL">All Entries</option>
                 <option value="EXPENSE">Debit (Expenses)</option>
-                <option value="INCOME">Credit (Top-Ups)</option>
+                <option value="INCOME">Credit (Add Money)</option>
               </select>
             </div>
 
@@ -356,7 +356,7 @@
           <div class="plus-options-grid">
             <button id="btnChoiceAddExisting" class="plus-option-card">
               <h3>Add / Spend Money</h3>
-              <p>Record an expense or top-up for an existing category.</p>
+              <p>Record an expense or add money for an existing category.</p>
             </button>
 
             <button id="btnChoiceAddNewSegregation" class="plus-option-card">
@@ -401,7 +401,7 @@
               Add Expense
             </button>
             <button id="btnTopUpBucketFund" class="btn btn-camel">
-              Top-Up Fund
+              Add Money
             </button>
             <button id="btnEditSegregationSettings" class="btn btn-outline-brown">
               Edit Category
@@ -450,7 +450,7 @@
             <label for="txTypeSelect">Transaction Type</label>
             <select id="txTypeSelect" class="form-input" required>
               <option value="EXPENSE">Debit (Spend Money)</option>
-              <option value="INCOME">Credit (Add Money / Top-Up)</option>
+              <option value="INCOME">Credit (Add Money)</option>
             </select>
           </div>
 
@@ -556,7 +556,7 @@
           </div>
 
           <div class="form-group">
-            <label for="segAllocatedInput">Allocated Amount (₹)</label>
+            <label for="segAllocatedInput" id="labelSegAllocated">Allocated Amount (₹)</label>
             <input type="number" id="segAllocatedInput" class="form-input" min="0" step="any" placeholder="0" required />
           </div>
 

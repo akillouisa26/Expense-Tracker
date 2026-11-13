@@ -219,6 +219,7 @@
     DOM.segIdInput = document.getElementById('segIdInput');
     DOM.segNameInput = document.getElementById('segNameInput');
     DOM.segAllocatedInput = document.getElementById('segAllocatedInput');
+    DOM.labelSegAllocated = document.getElementById('labelSegAllocated');
 
     DOM.modalFirebase = document.getElementById('modalFirebase');
     DOM.firebaseForm = document.getElementById('firebaseForm');
@@ -1792,7 +1793,7 @@
           amount,
           date,
           monthKey: getCurrentMonthKey(new Date(date)),
-          note: type === 'EXPENSE' ? `Savings Withdrawal: ${note}` : `Top-Up to Savings (${note})`
+          note: type === 'EXPENSE' ? `Savings Withdrawal: ${note}` : `Add Money to Savings (${note})`
         });
       }
     }
@@ -1808,15 +1809,18 @@
     if (segId) {
       const seg = state.segregations.find(s => s.id === segId);
       if (!seg) return;
+      const metrics = getSegregationMetrics(seg.id);
       DOM.segIdInput.value = seg.id;
       DOM.segNameInput.value = seg.name;
-      DOM.segAllocatedInput.value = seg.allocatedFund;
+      DOM.segAllocatedInput.value = metrics.remaining;
       DOM.segregationModalTitle.textContent = 'Edit Category';
+      if (DOM.labelSegAllocated) DOM.labelSegAllocated.textContent = 'Current Amount (₹)';
     } else {
       DOM.segIdInput.value = '';
       DOM.segNameInput.value = '';
       DOM.segAllocatedInput.value = '';
       DOM.segregationModalTitle.textContent = 'Add Category';
+      if (DOM.labelSegAllocated) DOM.labelSegAllocated.textContent = 'Allocated Amount (₹)';
     }
     DOM.modalSegregation.showModal();
   }
@@ -2022,7 +2026,7 @@
     e.preventDefault();
     const id = DOM.segIdInput.value;
     const name = DOM.segNameInput.value.trim();
-    const allocatedFund = parseFloat(DOM.segAllocatedInput.value) || 0;
+    const enteredAmount = parseFloat(DOM.segAllocatedInput.value) || 0;
 
     if (!name) {
       showToast('Please enter a name', 'danger');
@@ -2033,7 +2037,6 @@
       const seg = state.segregations.find(s => s.id === id);
       if (seg) {
         seg.name = name;
-        seg.allocatedFund = allocatedFund;
 
         // Keep segregationName updated on existing transactions
         state.transactions.forEach(t => {
@@ -2042,10 +2045,35 @@
           }
         });
 
-        // Also update initial creation transaction amount so transaction history matches allocated fund!
-        const initTx = state.transactions.find(t => t.segregationId === id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
-        if (initTx) {
-          initTx.amount = allocatedFund;
+        // Compute current remaining balance before edit
+        const currentMetrics = getSegregationMetrics(id);
+        const currentRemaining = currentMetrics.remaining;
+        const diff = enteredAmount - currentRemaining;
+
+        // If amount was changed, adjust so that the new remaining balance equals enteredAmount
+        if (Math.abs(diff) > 0.001) {
+          const initTx = state.transactions.find(t => t.segregationId === id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
+          if (initTx && Number(initTx.amount) + diff >= 0) {
+            initTx.amount = Number(initTx.amount) + diff;
+            seg.allocatedFund = Number(initTx.amount);
+          } else if (initTx) {
+            const remainderDiff = diff + Number(initTx.amount);
+            initTx.amount = 0;
+            seg.allocatedFund = 0;
+            const todayStr = new Date().toISOString().split('T')[0];
+            state.transactions.push({
+              id: 'tx_adj_' + Date.now(),
+              segregationId: id,
+              segregationName: name,
+              type: remainderDiff > 0 ? 'INCOME' : 'EXPENSE',
+              amount: Math.abs(remainderDiff),
+              date: todayStr,
+              monthKey: getCurrentMonthKey(new Date(todayStr)),
+              note: 'Balance Adjustment'
+            });
+          } else {
+            seg.allocatedFund = Math.max(0, Number(seg.allocatedFund || 0) + diff);
+          }
           saveTransactionsToStorage();
         }
       }
@@ -2055,7 +2083,7 @@
       const newSeg = {
         id: newSegId,
         name,
-        allocatedFund
+        allocatedFund: enteredAmount
       };
       state.segregations.push(newSeg);
 
@@ -2065,19 +2093,19 @@
         segregationId: newSegId,
         segregationName: name,
         type: 'INCOME',
-        amount: allocatedFund,
+        amount: enteredAmount,
         date: todayStr,
         monthKey: getCurrentMonthKey(new Date(todayStr)),
         note: 'New Category Created'
       });
       saveTransactionsToStorage();
 
-      if (name.toLowerCase().includes('savings') && allocatedFund > 0) {
+      if (name.toLowerCase().includes('savings') && enteredAmount > 0) {
         state.savingsVault.push({
           id: 'sav_' + Date.now(),
           date: todayStr,
           particulars: `${name} Initial Allocation`,
-          amount: allocatedFund
+          amount: enteredAmount
         });
         saveSavingsVaultToStorage();
       }
