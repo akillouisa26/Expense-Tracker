@@ -1173,6 +1173,32 @@
       }
     });
 
+    // Ensure any category with allocatedFund that lacks an explicit initial transaction in state.transactions is represented in monthlyMap
+    state.segregations.forEach(seg => {
+      const segTxs = state.transactions.filter(t => t.segregationId === seg.id);
+      const hasInitTx = segTxs.some(t =>
+        t.id.startsWith('tx_create_') ||
+        t.id.startsWith('tx_init_') ||
+        t.note === 'New Category Created' ||
+        t.note === 'Initial Allocation' ||
+        (t.type === 'INCOME' && segTxs.indexOf(t) === 0)
+      );
+      if (!hasInitTx && (Number(seg.allocatedFund) || 0) > 0) {
+        const allocDate = seg.createdDate || (segTxs.length > 0 ? segTxs[0].date : null) || new Date().toISOString().split('T')[0];
+        const mKey = normalizeMonthKey(allocDate);
+        if (mKey) {
+          if (!monthlyMap.has(mKey)) {
+            monthlyMap.set(mKey, { expense: 0, income: 0, categoryDebits: {}, categoryCredits: {}, categories: {} });
+          }
+          const d = monthlyMap.get(mKey);
+          const catName = seg.name.trim();
+          const amt = Number(seg.allocatedFund);
+          d.income += amt;
+          d.categoryCredits[catName] = (d.categoryCredits[catName] || 0) + amt;
+        }
+      }
+    });
+
     const sortedMonthKeys = Array.from(monthlyMap.keys()).sort();
     let runningCarryForward = 0;
     const categoryRunningCarryForward = {};
@@ -1182,8 +1208,8 @@
       const credit = d.income || 0;
       const debit = d.expense || 0;
       const carryForward = runningCarryForward;
-      // Total = carry Forward + debit + Credit. remaining amount = Total - Debit.
-      const total = carryForward + debit + credit;
+      // Total amount = carry forward + credit. Remaining amount = Total - Debit (current balance).
+      const total = carryForward + credit;
       const remaining = total - debit;
       runningCarryForward = remaining;
 
@@ -1201,7 +1227,7 @@
         const catCarry = categoryRunningCarryForward[cat] || 0;
         const catCred = (d.categoryCredits && d.categoryCredits[cat]) || 0;
         const catDeb = (d.categoryDebits && d.categoryDebits[cat]) || 0;
-        const catTot = catCarry + catDeb + catCred;
+        const catTot = catCarry + catCred;
         const catRem = catTot - catDeb;
         categoryRunningCarryForward[cat] = catRem;
 
