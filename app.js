@@ -65,6 +65,29 @@
     return `${year}-${month}`;
   }
 
+  function normalizeMonthKey(dateStr, existingMonthKey) {
+    if (existingMonthKey && /^\d{4}-\d{2}$/.test(existingMonthKey)) {
+      return existingMonthKey;
+    }
+    if (!dateStr) return '';
+    const str = String(dateStr).trim();
+    // Match YYYY-MM or YYYY/MM
+    const ymd = str.match(/^(\d{4})[-/.](\d{1,2})/);
+    if (ymd) {
+      return `${ymd[1]}-${ymd[2].padStart(2, '0')}`;
+    }
+    // Match DD-MM-YYYY or DD/MM/YYYY
+    const dmy = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+    if (dmy) {
+      return `${dmy[3]}-${dmy[2].padStart(2, '0')}`;
+    }
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+    return '';
+  }
+
   function formatMoney(amount) {
     const num = Number(amount) || 0;
     return `₹${num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -1093,8 +1116,8 @@
     }
 
     state.transactions.forEach(t => {
-      if (!t.date) return;
-      const mKey = t.monthKey || t.date.substring(0, 7);
+      const mKey = normalizeMonthKey(t.date, t.monthKey);
+      if (!mKey) return;
       if (!monthlyMap.has(mKey)) {
         monthlyMap.set(mKey, { expense: 0, income: 0, categories: {} });
       }
@@ -1246,20 +1269,14 @@
     }
 
     // 3. Calculate selected month numbers: Total Debit, Total Credit, Remaining Amount
-    const monthTxs = state.transactions.filter(t => {
-      if (!t.date) return false;
-      const mKey = t.monthKey || t.date.substring(0, 7);
-      return mKey === state.selectedExpenseMonth;
-    });
+    const targetMonthData = aggregates.monthsData.find(m => m.monthKey === state.selectedExpenseMonth) || {
+      expense: 0,
+      income: 0,
+      categories: {}
+    };
 
-    const totalDebit = monthTxs
-      .filter(t => t.type === 'EXPENSE')
-      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
-
-    const totalCredit = monthTxs
-      .filter(t => t.type === 'INCOME')
-      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
-
+    const totalDebit = targetMonthData.expense || 0;
+    const totalCredit = targetMonthData.income || 0;
     const remaining = totalCredit - totalDebit;
 
     if (DOM.displayMonthTotalDebit) {
@@ -1280,48 +1297,90 @@
       DOM.labelModeMonthName.textContent = monthFormatted;
     }
 
-    // 4. Render Chart with ALL Categories & Spend Labels (including ₹0)
-    const targetMonthData = aggregates.monthsData.find(m => m.monthKey === state.selectedExpenseMonth) || {
-      expense: 0,
-      income: 0,
-      categories: {}
-    };
+    // Synchronize month & year on the 3 summary metric card labels
+    document.querySelectorAll('.target-month-label').forEach(el => {
+      el.textContent = monthFormatted;
+    });
 
+    // 4. Render Chart with ONLY Categories that belong to this particular month
     renderCategorySpendGraph(targetMonthData, monthFormatted);
   }
 
   function renderCategorySpendGraph(monthData, monthLabel) {
-    // 1. Gather all active categories from state.segregations
-    const allCategoriesMap = new Map();
-    state.segregations.forEach(s => {
-      if (s && s.name) {
-        allCategoriesMap.set(s.name.trim(), 0);
-      }
-    });
+    const monthCategories = (monthData && monthData.categories) ? monthData.categories : {};
 
-    // 2. Also populate with actual expenses from monthData (including historical or deleted categories)
-    if (monthData && monthData.categories) {
-      Object.entries(monthData.categories).forEach(([catName, amt]) => {
-        allCategoriesMap.set(catName, Number(amt) || 0);
-      });
-    }
-
-    if (allCategoriesMap.size === 0) {
-      allCategoriesMap.set('No Categories', 0);
-    }
-
-    // Sort: categories with spending first (descending by amount), then alphabetical for ₹0
-    const sortedEntries = Array.from(allCategoriesMap.entries()).sort((a, b) => {
-      if (b[1] !== a[1]) return b[1] - a[1];
-      return a[0].localeCompare(b[0]);
-    });
-
-    const categories = sortedEntries.map(e => e[0]);
-    const amounts = sortedEntries.map(e => e[1]);
+    // In that particular month, show only the categories that actually have expenses recorded in this month
+    const categoryEntries = Object.entries(monthCategories).filter(([_, amt]) => Number(amt) > 0);
 
     const palette = ['#6e473b', '#c59b27', '#a07855', '#4e3027', '#e07a5f', '#81b29a', '#deb986', '#8d5b4c'];
 
-    // Custom Chart.js Plugin to render exact amounts above each bar, even if ₹0
+    if (categoryEntries.length === 0) {
+      // Clean Empty State when no categories have expenses in this particular month
+      if (window.Chart && DOM.singleExpenseChart) {
+        if (DOM.singleExpenseFallback) DOM.singleExpenseFallback.classList.add('hidden');
+        DOM.singleExpenseChart.classList.remove('hidden');
+
+        if (state.charts.singleExpense) {
+          state.charts.singleExpense.destroy();
+        }
+
+        const ctx = DOM.singleExpenseChart.getContext('2d');
+        state.charts.singleExpense = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: [`No Expenses in ${monthLabel}`],
+            datasets: [{
+              label: `Spent in ${monthLabel}`,
+              data: [0],
+              backgroundColor: '#a07855',
+              borderRadius: 6,
+              maxBarThickness: 40
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: { enabled: false }
+            },
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: {
+                  font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600', size: 13 },
+                  color: '#786452'
+                }
+              },
+              y: {
+                min: 0,
+                max: 100,
+                grid: { color: '#e5dac8' },
+                ticks: { display: false }
+              }
+            }
+          }
+        });
+      } else if (DOM.singleExpenseFallback) {
+        DOM.singleExpenseFallback.classList.remove('hidden');
+        DOM.singleExpenseFallback.innerHTML = `
+          <div class="chart-empty-state" style="text-align: center; padding: 2rem; color: #786452;">
+            <i class="fa-solid fa-chart-simple" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.6;"></i>
+            <p style="margin: 0; font-weight: 600;">No expenses recorded in ${escapeHTML(monthLabel)}</p>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    // Sort categories descending by amount spent
+    categoryEntries.sort((a, b) => b[1] - a[1]);
+
+    const categories = categoryEntries.map(e => e[0]);
+    const amounts = categoryEntries.map(e => e[1]);
+    const maxVal = Math.max(...amounts, 10);
+
+    // Custom Chart.js Plugin to render exact amounts above each bar
     const barValueLabelsPlugin = {
       id: 'barValueLabels',
       afterDatasetsDraw(chart) {
@@ -1334,10 +1393,9 @@
             const text = `₹${Number(val).toLocaleString('en-IN')}`;
             ctx.save();
             ctx.font = "bold 11px 'Plus Jakarta Sans', sans-serif";
-            ctx.fillStyle = val > 0 ? '#4e3027' : '#8d7b6d';
+            ctx.fillStyle = '#4e3027';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
-            // Position text slightly above the bar; if 0, bar.y is at the bottom baseline
             const yPos = Math.min(bar.y - 4, y.bottom - 4);
             ctx.fillText(text, bar.x, yPos);
             ctx.restore();
@@ -1399,7 +1457,7 @@
             y: {
               beginAtZero: true,
               grace: '18%',
-              suggestedMax: 100,
+              suggestedMax: Math.ceil(maxVal * 1.15),
               grid: { color: '#e5dac8' },
               ticks: {
                 color: '#786452',

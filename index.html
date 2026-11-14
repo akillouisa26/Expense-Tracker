@@ -126,7 +126,6 @@
           <div class="chart-card-header">
             <div>
               <h3 class="chart-card-title"><i class="fa-solid fa-chart-column" style="color: var(--brown-primary);"></i> Monthly Expenses</h3>
-              <p class="chart-card-subtitle text-muted">Review your monthly spending in numbers and graph</p>
             </div>
             
             <!-- Month Selector Toolbar -->
@@ -146,17 +145,17 @@
           <!-- Clear Numerical Callout: Total Debit, Total Credit, Remaining Amount -->
           <div class="expense-numbers-banner expense-summary-3col">
             <div class="expense-summary-box debit-box">
-              <span class="numbers-label"><i class="fa-solid fa-arrow-down" style="color: var(--debit-color);"></i> Total Debit</span>
+              <span class="numbers-label"><i class="fa-solid fa-arrow-down" style="color: var(--debit-color);"></i> Total Debit (<span class="target-month-label">This Month</span>)</span>
               <div class="numbers-main-amount text-debit" id="displayMonthTotalDebit">₹0</div>
             </div>
             <div class="expense-summary-divider"></div>
             <div class="expense-summary-box credit-box">
-              <span class="numbers-label"><i class="fa-solid fa-arrow-up" style="color: var(--credit-color);"></i> Total Credit</span>
+              <span class="numbers-label"><i class="fa-solid fa-arrow-up" style="color: var(--credit-color);"></i> Total Credit (<span class="target-month-label">This Month</span>)</span>
               <div class="numbers-main-amount text-credit" id="displayMonthTotalCredit">₹0</div>
             </div>
             <div class="expense-summary-divider"></div>
             <div class="expense-summary-box remaining-box">
-              <span class="numbers-label"><i class="fa-solid fa-wallet" style="color: var(--brown-primary);"></i> Remaining Amount</span>
+              <span class="numbers-label"><i class="fa-solid fa-wallet" style="color: var(--brown-primary);"></i> Remaining (<span class="target-month-label">This Month</span>)</span>
               <div class="numbers-main-amount" id="displayMonthRemaining">₹0</div>
             </div>
           </div>
