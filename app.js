@@ -1182,7 +1182,8 @@
       const credit = d.income || 0;
       const debit = d.expense || 0;
       const carryForward = runningCarryForward;
-      const total = carryForward + credit;
+      // Total = carry Forward + debit + Credit. remaining amount = Total - Debit.
+      const total = carryForward + debit + credit;
       const remaining = total - debit;
       runningCarryForward = remaining;
 
@@ -1200,7 +1201,7 @@
         const catCarry = categoryRunningCarryForward[cat] || 0;
         const catCred = (d.categoryCredits && d.categoryCredits[cat]) || 0;
         const catDeb = (d.categoryDebits && d.categoryDebits[cat]) || 0;
-        const catTot = catCarry + catCred;
+        const catTot = catCarry + catDeb + catCred;
         const catRem = catTot - catDeb;
         categoryRunningCarryForward[cat] = catRem;
 
