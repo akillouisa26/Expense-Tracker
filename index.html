@@ -142,21 +142,48 @@
             </div>
           </div>
 
-          <!-- Clear Numerical Callout: Total Debit, Total Credit, Remaining Amount -->
+          <!-- Common Month & Year Header Above the Three Metric Boxes -->
+          <div class="monthly-common-period-banner">
+            <span class="common-period-badge">
+              <i class="fa-regular fa-calendar-days" style="color: var(--brown-primary);"></i>
+              <span id="monthlyExpenseCommonPeriod">Oct 2026</span>
+            </span>
+            <span class="common-period-hint text-muted">
+              <i class="fa-solid fa-arrow-pointer"></i> Click Total, Debit, or Credit to filter the graph
+            </span>
+          </div>
+
+          <!-- Interactive 3-Card Summary: First Total Amount, then Debit, then Credit -->
           <div class="expense-numbers-banner expense-summary-3col">
-            <div class="expense-summary-box debit-box">
-              <span class="numbers-label"><i class="fa-solid fa-arrow-down" style="color: var(--debit-color);"></i> Total Debit (<span class="target-month-label">This Month</span>)</span>
+            <!-- 1. Total Amount (Clickable) -->
+            <div class="expense-summary-box remaining-box clickable active" id="btnFilterGraphTotal" role="button" tabindex="0" title="Click to view all categories in graph">
+              <div class="summary-box-top-row">
+                <span class="numbers-label"><i class="fa-solid fa-wallet" style="color: var(--brown-primary);"></i> Total Amount</span>
+                <span class="filter-chip-indicator"><i class="fa-solid fa-chart-column"></i> Active</span>
+              </div>
+              <div class="numbers-main-amount" id="displayMonthRemaining">₹0</div>
+            </div>
+
+            <div class="expense-summary-divider"></div>
+
+            <!-- 2. Debit (Clickable) -->
+            <div class="expense-summary-box debit-box clickable" id="btnFilterGraphDebit" role="button" tabindex="0" title="Click to view debited categories in graph">
+              <div class="summary-box-top-row">
+                <span class="numbers-label"><i class="fa-solid fa-arrow-down" style="color: var(--debit-color);"></i> Debit</span>
+                <span class="filter-chip-indicator"><i class="fa-solid fa-chart-column"></i> Active</span>
+              </div>
               <div class="numbers-main-amount text-debit" id="displayMonthTotalDebit">₹0</div>
             </div>
+
             <div class="expense-summary-divider"></div>
-            <div class="expense-summary-box credit-box">
-              <span class="numbers-label"><i class="fa-solid fa-arrow-up" style="color: var(--credit-color);"></i> Total Credit (<span class="target-month-label">This Month</span>)</span>
+
+            <!-- 3. Credit (Clickable) -->
+            <div class="expense-summary-box credit-box clickable" id="btnFilterGraphCredit" role="button" tabindex="0" title="Click to view credited categories in graph">
+              <div class="summary-box-top-row">
+                <span class="numbers-label"><i class="fa-solid fa-arrow-up" style="color: var(--credit-color);"></i> Credit</span>
+                <span class="filter-chip-indicator"><i class="fa-solid fa-chart-column"></i> Active</span>
+              </div>
               <div class="numbers-main-amount text-credit" id="displayMonthTotalCredit">₹0</div>
-            </div>
-            <div class="expense-summary-divider"></div>
-            <div class="expense-summary-box remaining-box">
-              <span class="numbers-label"><i class="fa-solid fa-wallet" style="color: var(--brown-primary);"></i> Remaining (<span class="target-month-label">This Month</span>)</span>
-              <div class="numbers-main-amount" id="displayMonthRemaining">₹0</div>
             </div>
           </div>
 
