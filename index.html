@@ -143,28 +143,28 @@
             </div>
           </div>
 
-          <!-- Clear Numerical Callout -->
-          <div class="expense-numbers-banner">
-            <div class="expense-numbers-left">
-              <span class="numbers-label" id="labelSelectedMonthExpense">This Month's Total Expense</span>
-              <div class="numbers-main-amount" id="displayMonthTotalExpense">₹0</div>
+          <!-- Clear Numerical Callout: Total Debit, Total Credit, Remaining Amount -->
+          <div class="expense-numbers-banner expense-summary-3col">
+            <div class="expense-summary-box debit-box">
+              <span class="numbers-label"><i class="fa-solid fa-arrow-down" style="color: var(--debit-color);"></i> Total Debit</span>
+              <div class="numbers-main-amount text-debit" id="displayMonthTotalDebit">₹0</div>
             </div>
-            <div class="expense-numbers-right">
-              <span class="comparison-label" id="displayPrevMonthComparison">Previous Month: ₹0</span>
+            <div class="expense-summary-divider"></div>
+            <div class="expense-summary-box credit-box">
+              <span class="numbers-label"><i class="fa-solid fa-arrow-up" style="color: var(--credit-color);"></i> Total Credit</span>
+              <div class="numbers-main-amount text-credit" id="displayMonthTotalCredit">₹0</div>
+            </div>
+            <div class="expense-summary-divider"></div>
+            <div class="expense-summary-box remaining-box">
+              <span class="numbers-label"><i class="fa-solid fa-wallet" style="color: var(--brown-primary);"></i> Remaining Amount</span>
+              <div class="numbers-main-amount" id="displayMonthRemaining">₹0</div>
             </div>
           </div>
 
-          <!-- View Mode Toggle: How I Spent vs Previous Months History -->
-          <div class="graph-mode-toggle-row">
+          <!-- Graph Month Indicator (Month & Year Only) -->
+          <div class="graph-view-header-row">
             <span class="toggle-row-label">Graph View:</span>
-            <div class="graph-mode-toggle">
-              <button type="button" class="mode-toggle-btn active" id="btnModeCategorySpend">
-                <i class="fa-solid fa-chart-pie"></i> How I Spent in <span id="labelModeMonthName">This Month</span>
-              </button>
-              <button type="button" class="mode-toggle-btn" id="btnModePreviousMonths">
-                <i class="fa-solid fa-chart-column"></i> Previous Months History
-              </button>
-            </div>
+            <span class="graph-month-pill" id="labelModeMonthName">Sep 2026</span>
           </div>
 
           <!-- Chart Canvas Area -->
@@ -558,6 +558,11 @@
           <div class="form-group">
             <label for="segAllocatedInput" id="labelSegAllocated">Allocated Amount (₹)</label>
             <input type="number" id="segAllocatedInput" class="form-input" min="0" step="any" placeholder="0" required />
+          </div>
+
+          <div class="form-group">
+            <label for="segDateInput">Date</label>
+            <input type="date" id="segDateInput" class="form-input" required />
           </div>
 
           <div class="modal-footer">

@@ -140,11 +140,9 @@
     DOM.btnPrevExpenseMonth = document.getElementById('btnPrevExpenseMonth');
     DOM.selectExpenseMonth = document.getElementById('selectExpenseMonth');
     DOM.btnNextExpenseMonth = document.getElementById('btnNextExpenseMonth');
-    DOM.labelSelectedMonthExpense = document.getElementById('labelSelectedMonthExpense');
-    DOM.displayMonthTotalExpense = document.getElementById('displayMonthTotalExpense');
-    DOM.displayPrevMonthComparison = document.getElementById('displayPrevMonthComparison');
-    DOM.btnModeCategorySpend = document.getElementById('btnModeCategorySpend');
-    DOM.btnModePreviousMonths = document.getElementById('btnModePreviousMonths');
+    DOM.displayMonthTotalDebit = document.getElementById('displayMonthTotalDebit');
+    DOM.displayMonthTotalCredit = document.getElementById('displayMonthTotalCredit');
+    DOM.displayMonthRemaining = document.getElementById('displayMonthRemaining');
     DOM.labelModeMonthName = document.getElementById('labelModeMonthName');
     DOM.singleExpenseChart = document.getElementById('singleExpenseChart');
     DOM.singleExpenseFallback = document.getElementById('singleExpenseFallback');
@@ -220,6 +218,7 @@
     DOM.segNameInput = document.getElementById('segNameInput');
     DOM.segAllocatedInput = document.getElementById('segAllocatedInput');
     DOM.labelSegAllocated = document.getElementById('labelSegAllocated');
+    DOM.segDateInput = document.getElementById('segDateInput');
 
     DOM.modalFirebase = document.getElementById('modalFirebase');
     DOM.firebaseForm = document.getElementById('firebaseForm');
@@ -1246,74 +1245,106 @@
       DOM.btnNextExpenseMonth.disabled = (currentIdx >= keys.length - 1);
     }
 
-    // 3. Calculate selected month numbers and previous month comparison
+    // 3. Calculate selected month numbers: Total Debit, Total Credit, Remaining Amount
+    const monthTxs = state.transactions.filter(t => {
+      if (!t.date) return false;
+      const mKey = t.monthKey || t.date.substring(0, 7);
+      return mKey === state.selectedExpenseMonth;
+    });
+
+    const totalDebit = monthTxs
+      .filter(t => t.type === 'EXPENSE')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+    const totalCredit = monthTxs
+      .filter(t => t.type === 'INCOME')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+    const remaining = totalCredit - totalDebit;
+
+    if (DOM.displayMonthTotalDebit) {
+      DOM.displayMonthTotalDebit.textContent = formatMoney(totalDebit);
+    }
+    if (DOM.displayMonthTotalCredit) {
+      DOM.displayMonthTotalCredit.textContent = formatMoney(totalCredit);
+    }
+    if (DOM.displayMonthRemaining) {
+      DOM.displayMonthRemaining.textContent = remaining >= 0
+        ? formatMoney(remaining)
+        : `-₹${Math.abs(remaining).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+      DOM.displayMonthRemaining.style.color = remaining >= 0 ? 'var(--credit-color)' : 'var(--debit-color)';
+    }
+
+    const monthFormatted = formatMonthLabel(state.selectedExpenseMonth);
+    if (DOM.labelModeMonthName) {
+      DOM.labelModeMonthName.textContent = monthFormatted;
+    }
+
+    // 4. Render Chart with ALL Categories & Spend Labels (including ₹0)
     const targetMonthData = aggregates.monthsData.find(m => m.monthKey === state.selectedExpenseMonth) || {
       expense: 0,
       income: 0,
       categories: {}
     };
-    const selectedExpense = targetMonthData.expense || 0;
 
-    // Determine previous calendar month
-    const [selYear, selMonth] = state.selectedExpenseMonth.split('-').map(Number);
-    const prevDate = new Date(selYear, selMonth - 2, 1);
-    const prevMonthKey = getCurrentMonthKey(prevDate);
-    const prevMonthData = aggregates.monthsData.find(m => m.monthKey === prevMonthKey);
-    const prevExpense = prevMonthData ? prevMonthData.expense : 0;
-
-    const isCurrent = state.selectedExpenseMonth === getCurrentMonthKey();
-    const monthFormatted = formatMonthLabel(state.selectedExpenseMonth);
-
-    if (DOM.labelSelectedMonthExpense) {
-      DOM.labelSelectedMonthExpense.textContent = isCurrent
-        ? "This Month's Total Expense"
-        : `${monthFormatted} Total Expense`;
-    }
-
-    if (DOM.displayMonthTotalExpense) {
-      DOM.displayMonthTotalExpense.textContent = formatMoney(selectedExpense);
-    }
-
-    if (DOM.displayPrevMonthComparison) {
-      const prevFormatted = formatMonthLabel(prevMonthKey);
-      let comp = `Previous Month (${prevFormatted}): ${formatMoney(prevExpense)}`;
-      if (prevExpense > 0 && selectedExpense > 0) {
-        const diff = selectedExpense - prevExpense;
-        const pct = Math.abs(Math.round((diff / prevExpense) * 100));
-        if (diff > 0) comp += ` (${pct}% more)`;
-        else if (diff < 0) comp += ` (${pct}% less)`;
-        else comp += ` (same)`;
-      }
-      DOM.displayPrevMonthComparison.textContent = comp;
-    }
-
-    if (DOM.labelModeMonthName) {
-      DOM.labelModeMonthName.textContent = monthFormatted;
-    }
-
-    // Update active class on toggle buttons
-    if (DOM.btnModeCategorySpend) {
-      DOM.btnModeCategorySpend.classList.toggle('active', state.expenseGraphMode === 'CATEGORIES');
-    }
-    if (DOM.btnModePreviousMonths) {
-      DOM.btnModePreviousMonths.classList.toggle('active', state.expenseGraphMode === 'PREVIOUS_MONTHS');
-    }
-
-    // 4. Render Chart or Fallback
-    if (state.expenseGraphMode === 'CATEGORIES') {
-      renderCategorySpendGraph(targetMonthData, monthFormatted);
-    } else {
-      renderPreviousMonthsGraph(aggregates.monthsData, state.selectedExpenseMonth);
-    }
+    renderCategorySpendGraph(targetMonthData, monthFormatted);
   }
 
   function renderCategorySpendGraph(monthData, monthLabel) {
-    const categories = Object.keys(monthData.categories || {});
-    // Sort descending by amount
-    categories.sort((a, b) => (monthData.categories[b] || 0) - (monthData.categories[a] || 0));
-    const amounts = categories.map(c => monthData.categories[c] || 0);
+    // 1. Gather all active categories from state.segregations
+    const allCategoriesMap = new Map();
+    state.segregations.forEach(s => {
+      if (s && s.name) {
+        allCategoriesMap.set(s.name.trim(), 0);
+      }
+    });
+
+    // 2. Also populate with actual expenses from monthData (including historical or deleted categories)
+    if (monthData && monthData.categories) {
+      Object.entries(monthData.categories).forEach(([catName, amt]) => {
+        allCategoriesMap.set(catName, Number(amt) || 0);
+      });
+    }
+
+    if (allCategoriesMap.size === 0) {
+      allCategoriesMap.set('No Categories', 0);
+    }
+
+    // Sort: categories with spending first (descending by amount), then alphabetical for ₹0
+    const sortedEntries = Array.from(allCategoriesMap.entries()).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+
+    const categories = sortedEntries.map(e => e[0]);
+    const amounts = sortedEntries.map(e => e[1]);
 
     const palette = ['#6e473b', '#c59b27', '#a07855', '#4e3027', '#e07a5f', '#81b29a', '#deb986', '#8d5b4c'];
+
+    // Custom Chart.js Plugin to render exact amounts above each bar, even if ₹0
+    const barValueLabelsPlugin = {
+      id: 'barValueLabels',
+      afterDatasetsDraw(chart) {
+        const { ctx, scales: { x, y } } = chart;
+        chart.data.datasets.forEach((dataset, datasetIndex) => {
+          const meta = chart.getDatasetMeta(datasetIndex);
+          if (!meta || !meta.data) return;
+          meta.data.forEach((bar, index) => {
+            const val = dataset.data[index] !== undefined ? dataset.data[index] : 0;
+            const text = `₹${Number(val).toLocaleString('en-IN')}`;
+            ctx.save();
+            ctx.font = "bold 11px 'Plus Jakarta Sans', sans-serif";
+            ctx.fillStyle = val > 0 ? '#4e3027' : '#8d7b6d';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            // Position text slightly above the bar; if 0, bar.y is at the bottom baseline
+            const yPos = Math.min(bar.y - 4, y.bottom - 4);
+            ctx.fillText(text, bar.x, yPos);
+            ctx.restore();
+          });
+        });
+      }
+    };
 
     if (window.Chart && DOM.singleExpenseChart) {
       if (DOM.singleExpenseFallback) DOM.singleExpenseFallback.classList.add('hidden');
@@ -1325,35 +1356,6 @@
 
       const ctx = DOM.singleExpenseChart.getContext('2d');
 
-      if (categories.length === 0 || amounts.every(a => a === 0)) {
-        // Display nice empty bar placeholder
-        state.charts.singleExpense = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: [`No Expenses Recorded in ${monthLabel}`],
-            datasets: [{
-              label: 'Expense',
-              data: [0],
-              backgroundColor: '#e5dac8',
-              borderRadius: 6
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: { enabled: false }
-            },
-            scales: {
-              x: { grid: { display: false }, ticks: { color: '#786452' } },
-              y: { max: 100, grid: { color: '#e5dac8' }, ticks: { display: false } }
-            }
-          }
-        });
-        return;
-      }
-
       state.charts.singleExpense = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -1363,9 +1365,10 @@
             data: amounts,
             backgroundColor: categories.map((_, i) => palette[i % palette.length]),
             borderRadius: 6,
-            maxBarThickness: 45
+            maxBarThickness: 50
           }]
         },
+        plugins: [barValueLabelsPlugin],
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -1380,7 +1383,7 @@
                   const val = ctx.raw || 0;
                   const total = amounts.reduce((a, b) => a + b, 0);
                   const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-                  return ` ${ctx.label}: ₹${Number(val).toLocaleString('en-IN')} (${pct}%)`;
+                  return ` Spent: ₹${Number(val).toLocaleString('en-IN')} (${pct}%)`;
                 }
               }
             }
@@ -1388,9 +1391,15 @@
           scales: {
             x: {
               grid: { display: false },
-              ticks: { font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600' }, color: '#786452' }
+              ticks: {
+                font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600' },
+                color: '#786452'
+              }
             },
             y: {
+              beginAtZero: true,
+              grace: '18%',
+              suggestedMax: 100,
               grid: { color: '#e5dac8' },
               ticks: {
                 color: '#786452',
@@ -1493,7 +1502,7 @@
       const col = document.createElement('div');
       col.className = 'fallback-bar-col';
       col.innerHTML = `
-        <span class="fallback-bar-val">${item.value > 0 ? '₹' + Math.round(item.value) : '—'}</span>
+        <span class="fallback-bar-val">₹${Number(item.value || 0).toLocaleString('en-IN')}</span>
         <div class="fallback-bar" style="height: ${heightPercent}%;"></div>
         <span class="fallback-bar-label">${escapeHTML(item.label)}</span>
       `;
@@ -1815,12 +1824,19 @@
       DOM.segAllocatedInput.value = metrics.remaining;
       DOM.segregationModalTitle.textContent = 'Edit Category';
       if (DOM.labelSegAllocated) DOM.labelSegAllocated.textContent = 'Current Amount (₹)';
+      const initTx = state.transactions.find(t => t.segregationId === seg.id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
+      if (DOM.segDateInput) {
+        DOM.segDateInput.value = (initTx && initTx.date) ? initTx.date : (seg.createdDate || new Date().toISOString().split('T')[0]);
+      }
     } else {
       DOM.segIdInput.value = '';
       DOM.segNameInput.value = '';
       DOM.segAllocatedInput.value = '';
       DOM.segregationModalTitle.textContent = 'Add Category';
       if (DOM.labelSegAllocated) DOM.labelSegAllocated.textContent = 'Allocated Amount (₹)';
+      if (DOM.segDateInput) {
+        DOM.segDateInput.value = new Date().toISOString().split('T')[0];
+      }
     }
     DOM.modalSegregation.showModal();
   }
@@ -2027,6 +2043,7 @@
     const id = DOM.segIdInput.value;
     const name = DOM.segNameInput.value.trim();
     const enteredAmount = parseFloat(DOM.segAllocatedInput.value) || 0;
+    const enteredDate = (DOM.segDateInput && DOM.segDateInput.value) ? DOM.segDateInput.value : new Date().toISOString().split('T')[0];
 
     if (!name) {
       showToast('Please enter a name', 'danger');
@@ -2037,6 +2054,7 @@
       const seg = state.segregations.find(s => s.id === id);
       if (seg) {
         seg.name = name;
+        seg.createdDate = enteredDate;
 
         // Keep segregationName updated on existing transactions
         state.transactions.forEach(t => {
@@ -2050,9 +2068,14 @@
         const currentRemaining = currentMetrics.remaining;
         const diff = enteredAmount - currentRemaining;
 
+        const initTx = state.transactions.find(t => t.segregationId === id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
+        if (initTx) {
+          initTx.date = enteredDate;
+          initTx.monthKey = getCurrentMonthKey(new Date(enteredDate));
+        }
+
         // If amount was changed, adjust so that the new remaining balance equals enteredAmount
         if (Math.abs(diff) > 0.001) {
-          const initTx = state.transactions.find(t => t.segregationId === id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
           if (initTx && Number(initTx.amount) + diff >= 0) {
             initTx.amount = Number(initTx.amount) + diff;
             seg.allocatedFund = Number(initTx.amount);
@@ -2060,30 +2083,29 @@
             const remainderDiff = diff + Number(initTx.amount);
             initTx.amount = 0;
             seg.allocatedFund = 0;
-            const todayStr = new Date().toISOString().split('T')[0];
             state.transactions.push({
               id: 'tx_adj_' + Date.now(),
               segregationId: id,
               segregationName: name,
               type: remainderDiff > 0 ? 'INCOME' : 'EXPENSE',
               amount: Math.abs(remainderDiff),
-              date: todayStr,
-              monthKey: getCurrentMonthKey(new Date(todayStr)),
+              date: enteredDate,
+              monthKey: getCurrentMonthKey(new Date(enteredDate)),
               note: 'Balance Adjustment'
             });
           } else {
             seg.allocatedFund = Math.max(0, Number(seg.allocatedFund || 0) + diff);
           }
-          saveTransactionsToStorage();
         }
+        saveTransactionsToStorage();
       }
     } else {
       const newSegId = 'seg_' + Date.now();
-      const todayStr = new Date().toISOString().split('T')[0];
       const newSeg = {
         id: newSegId,
         name,
-        allocatedFund: enteredAmount
+        allocatedFund: enteredAmount,
+        createdDate: enteredDate
       };
       state.segregations.push(newSeg);
 
@@ -2094,8 +2116,8 @@
         segregationName: name,
         type: 'INCOME',
         amount: enteredAmount,
-        date: todayStr,
-        monthKey: getCurrentMonthKey(new Date(todayStr)),
+        date: enteredDate,
+        monthKey: getCurrentMonthKey(new Date(enteredDate)),
         note: 'New Category Created'
       });
       saveTransactionsToStorage();
@@ -2103,7 +2125,7 @@
       if (name.toLowerCase().includes('savings') && enteredAmount > 0) {
         state.savingsVault.push({
           id: 'sav_' + Date.now(),
-          date: todayStr,
+          date: enteredDate,
           particulars: `${name} Initial Allocation`,
           amount: enteredAmount
         });
