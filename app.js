@@ -163,13 +163,15 @@
     DOM.monthlyExpenseDashboardCard = document.getElementById('monthlyExpenseDashboardCard');
     DOM.monthlyExpenseCommonPeriod = document.getElementById('monthlyExpenseCommonPeriod');
     DOM.btnFilterGraphTotal = document.getElementById('btnFilterGraphTotal');
-    DOM.btnFilterGraphDebit = document.getElementById('btnFilterGraphDebit');
     DOM.btnFilterGraphCredit = document.getElementById('btnFilterGraphCredit');
+    DOM.btnFilterGraphDebit = document.getElementById('btnFilterGraphDebit');
+    DOM.btnFilterGraphRemaining = document.getElementById('btnFilterGraphRemaining');
     DOM.btnPrevExpenseMonth = document.getElementById('btnPrevExpenseMonth');
     DOM.selectExpenseMonth = document.getElementById('selectExpenseMonth');
     DOM.btnNextExpenseMonth = document.getElementById('btnNextExpenseMonth');
-    DOM.displayMonthTotalDebit = document.getElementById('displayMonthTotalDebit');
+    DOM.displayMonthTotal = document.getElementById('displayMonthTotal');
     DOM.displayMonthTotalCredit = document.getElementById('displayMonthTotalCredit');
+    DOM.displayMonthTotalDebit = document.getElementById('displayMonthTotalDebit');
     DOM.displayMonthRemaining = document.getElementById('displayMonthRemaining');
     DOM.labelModeMonthName = document.getElementById('labelModeMonthName');
     DOM.singleExpenseChart = document.getElementById('singleExpenseChart');
@@ -516,6 +518,18 @@
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           setMonthlyGraphFilter('credit');
+        }
+      });
+    }
+
+    if (DOM.btnFilterGraphRemaining) {
+      DOM.btnFilterGraphRemaining.addEventListener('click', () => {
+        setMonthlyGraphFilter('remaining');
+      });
+      DOM.btnFilterGraphRemaining.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setMonthlyGraphFilter('remaining');
         }
       });
     }
@@ -1135,37 +1149,80 @@
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const mKey = getCurrentMonthKey(d);
-      monthlyMap.set(mKey, { expense: 0, income: 0, categories: {} });
+      monthlyMap.set(mKey, { expense: 0, income: 0, categoryDebits: {}, categoryCredits: {}, categories: {} });
     }
 
     state.transactions.forEach(t => {
       const mKey = normalizeMonthKey(t.date, t.monthKey);
       if (!mKey) return;
       if (!monthlyMap.has(mKey)) {
-        monthlyMap.set(mKey, { expense: 0, income: 0, categories: {} });
+        monthlyMap.set(mKey, { expense: 0, income: 0, categoryDebits: {}, categoryCredits: {}, categories: {} });
       }
       const data = monthlyMap.get(mKey);
       const amt = Number(t.amount) || 0;
+      const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
       if (t.type === 'EXPENSE') {
         data.expense += amt;
         totalExpenseRecorded += amt;
         totalTxCount++;
-        const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
         data.categories[catName] = (data.categories[catName] || 0) + amt;
+        data.categoryDebits[catName] = (data.categoryDebits[catName] || 0) + amt;
       } else {
         data.income += amt;
+        data.categoryCredits[catName] = (data.categoryCredits[catName] || 0) + amt;
       }
     });
 
     const sortedMonthKeys = Array.from(monthlyMap.keys()).sort();
+    let runningCarryForward = 0;
+    const categoryRunningCarryForward = {};
+
     const monthsData = sortedMonthKeys.map(mKey => {
       const d = monthlyMap.get(mKey);
+      const credit = d.income || 0;
+      const debit = d.expense || 0;
+      const carryForward = runningCarryForward;
+      const total = carryForward + credit;
+      const remaining = total - debit;
+      runningCarryForward = remaining;
+
+      const categoryTotals = {};
+      const categoryRemainings = {};
+
+      const allKnownCats = new Set([
+        ...state.segregations.map(s => s.name.trim()),
+        ...Object.keys(categoryRunningCarryForward),
+        ...Object.keys(d.categoryCredits || {}),
+        ...Object.keys(d.categoryDebits || {})
+      ]);
+
+      allKnownCats.forEach(cat => {
+        const catCarry = categoryRunningCarryForward[cat] || 0;
+        const catCred = (d.categoryCredits && d.categoryCredits[cat]) || 0;
+        const catDeb = (d.categoryDebits && d.categoryDebits[cat]) || 0;
+        const catTot = catCarry + catCred;
+        const catRem = catTot - catDeb;
+        categoryRunningCarryForward[cat] = catRem;
+
+        categoryTotals[cat] = catTot;
+        categoryRemainings[cat] = catRem;
+      });
+
       return {
         monthKey: mKey,
         label: formatMonthLabel(mKey),
-        expense: d.expense,
-        income: d.income,
-        categories: d.categories
+        carryForward,
+        total,
+        credit,
+        debit,
+        remaining,
+        expense: debit,
+        income: credit,
+        categories: d.categories || {},
+        categoryCredits: d.categoryCredits || {},
+        categoryDebits: d.categoryDebits || {},
+        categoryTotals,
+        categoryRemainings
       };
     });
 
@@ -1266,8 +1323,9 @@
   function updateMonthlyFilterCardStates() {
     const mode = state.monthlyGraphFilter || 'total';
     if (DOM.btnFilterGraphTotal) DOM.btnFilterGraphTotal.classList.toggle('active', mode === 'total');
-    if (DOM.btnFilterGraphDebit) DOM.btnFilterGraphDebit.classList.toggle('active', mode === 'debit');
     if (DOM.btnFilterGraphCredit) DOM.btnFilterGraphCredit.classList.toggle('active', mode === 'credit');
+    if (DOM.btnFilterGraphDebit) DOM.btnFilterGraphDebit.classList.toggle('active', mode === 'debit');
+    if (DOM.btnFilterGraphRemaining) DOM.btnFilterGraphRemaining.classList.toggle('active', mode === 'remaining');
   }
 
   function renderUnifiedExpenseSection() {
@@ -1304,22 +1362,32 @@
       DOM.btnNextExpenseMonth.disabled = (currentIdx >= keys.length - 1);
     }
 
-    // 3. Calculate selected month numbers: Total Amount (Remaining), Debit, Credit
+    // 3. Calculate selected month numbers: Total, Credit, Debit, Remaining Amount
     const targetMonthData = aggregates.monthsData.find(m => m.monthKey === state.selectedExpenseMonth) || {
-      expense: 0,
-      income: 0,
-      categories: {}
+      carryForward: 0,
+      total: 0,
+      credit: 0,
+      debit: 0,
+      remaining: 0,
+      categoryCredits: {},
+      categoryDebits: {},
+      categoryTotals: {},
+      categoryRemainings: {}
     };
 
-    const totalDebit = targetMonthData.expense || 0;
-    const totalCredit = targetMonthData.income || 0;
-    const remaining = totalCredit - totalDebit;
+    const total = targetMonthData.total || 0;
+    const credit = targetMonthData.credit || 0;
+    const debit = targetMonthData.debit || 0;
+    const remaining = targetMonthData.remaining !== undefined ? targetMonthData.remaining : (total - debit);
 
-    if (DOM.displayMonthTotalDebit) {
-      DOM.displayMonthTotalDebit.textContent = formatMoney(totalDebit);
+    if (DOM.displayMonthTotal) {
+      DOM.displayMonthTotal.textContent = formatMoney(total);
     }
     if (DOM.displayMonthTotalCredit) {
-      DOM.displayMonthTotalCredit.textContent = formatMoney(totalCredit);
+      DOM.displayMonthTotalCredit.textContent = formatMoney(credit);
+    }
+    if (DOM.displayMonthTotalDebit) {
+      DOM.displayMonthTotalDebit.textContent = formatMoney(debit);
     }
     if (DOM.displayMonthRemaining) {
       DOM.displayMonthRemaining.textContent = remaining >= 0
@@ -1330,184 +1398,89 @@
 
     const monthFormatted = formatMonthLabel(state.selectedExpenseMonth);
 
-    // Common Month & Year Header Above the Three Metric Boxes
+    // Common Month & Year Header Above the Four Metric Boxes
     if (DOM.monthlyExpenseCommonPeriod) {
       DOM.monthlyExpenseCommonPeriod.textContent = monthFormatted;
     }
 
-    // Update active highlight on the 3 clickable filter cards
+    // Update active highlight on the 4 clickable filter cards
     updateMonthlyFilterCardStates();
 
     // Update Graph View indicator pill
     const mode = state.monthlyGraphFilter || 'total';
-    const modeTitle = mode === 'debit' ? 'Debit' : (mode === 'credit' ? 'Credit' : 'Total');
+    const modeTitle = mode === 'credit' ? 'Credit' : (mode === 'debit' ? 'Debit' : (mode === 'remaining' ? 'Remaining' : 'Total'));
     if (DOM.labelModeMonthName) {
       DOM.labelModeMonthName.textContent = `${modeTitle} (${monthFormatted})`;
     }
 
-    // 4. Render Chart with selected filter mode ('total', 'debit', or 'credit')
+    // 4. Render Chart with selected filter mode ('total', 'credit', 'debit', or 'remaining')
     renderCategorySpendGraph(targetMonthData, monthFormatted, mode);
   }
 
   function renderCategorySpendGraph(monthData, monthLabel, filterMode = 'total') {
-    // 1. Gather all transactions belonging to this selected month
-    const monthTxs = state.transactions.filter(t => normalizeMonthKey(t.date, t.monthKey) === state.selectedExpenseMonth);
-
-    // 2. Aggregate debits and credits by category in this month
-    const categoryDebits = {};
-    const categoryCredits = {};
-
-    monthTxs.forEach(t => {
-      const amt = Number(t.amount) || 0;
-      const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
-      if (t.type === 'EXPENSE') {
-        categoryDebits[catName] = (categoryDebits[catName] || 0) + amt;
-      } else {
-        categoryCredits[catName] = (categoryCredits[catName] || 0) + amt;
+    // Collect all registered categories from state.segregations
+    const allCategoriesMap = new Map();
+    state.segregations.forEach(s => {
+      if (s && s.name) {
+        allCategoriesMap.set(s.name.trim(), 0);
       }
     });
 
-    let categories = [];
-    let amounts = [];
-    let datasetLabel = '';
-    let emptyMessage = '';
-    let barColorPalette = [];
-    let tooltipFormatter = null;
-
-    if (filterMode === 'debit') {
-      // DEBIT VIEW: "if i click debit it shows all the category where amount debit"
-      const entries = Object.entries(categoryDebits).filter(([_, val]) => val > 0);
-      entries.sort((a, b) => b[1] - a[1]);
-      categories = entries.map(e => e[0]);
-      amounts = entries.map(e => e[1]);
-      datasetLabel = `Debited in ${monthLabel}`;
-      emptyMessage = `No debits recorded in ${monthLabel}`;
-      barColorPalette = ['#b85d43', '#c05c46', '#a0522d', '#9c412b', '#8d5b4c', '#6e473b', '#d97757'];
-      tooltipFormatter = (val) => ` Debited: ₹${Number(val).toLocaleString('en-IN')}`;
-    } else if (filterMode === 'credit') {
-      // CREDIT VIEW: "same for the credit"
-      const entries = Object.entries(categoryCredits).filter(([_, val]) => val > 0);
-      entries.sort((a, b) => b[1] - a[1]);
-      categories = entries.map(e => e[0]);
-      amounts = entries.map(e => e[1]);
-      datasetLabel = `Credited in ${monthLabel}`;
-      emptyMessage = `No credits recorded in ${monthLabel}`;
-      barColorPalette = ['#2d6a4f', '#40916c', '#52796f', '#74c69d', '#81b29a', '#386641', '#606c38'];
-      tooltipFormatter = (val) => ` Credited: ₹${Number(val).toLocaleString('en-IN')}`;
-    } else {
-      // TOTAL VIEW: "shows all the category if i click total it should show all the category with amount"
-      const allCategoriesMap = new Map();
-
-      // All active categories in the tracker
-      state.segregations.forEach(s => {
-        if (s && s.name) {
-          allCategoriesMap.set(s.name.trim(), 0);
-        }
-      });
-
-      // Plus any category with transactions in this month
-      monthTxs.forEach(t => {
-        const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
-        if (!allCategoriesMap.has(catName)) {
-          allCategoriesMap.set(catName, 0);
-        }
-      });
-
-      const totalDetails = new Map();
-      Array.from(allCategoriesMap.keys()).forEach(catName => {
-        const deb = categoryDebits[catName] || 0;
-        const cred = categoryCredits[catName] || 0;
-        let amt = 0;
-        let note = 'No Activity';
-        if (cred > 0 && deb === 0) {
-          amt = cred;
-          note = `Credit: ₹${Number(cred).toLocaleString('en-IN')}`;
-        } else if (deb > 0 && cred === 0) {
-          amt = deb;
-          note = `Debit: ₹${Number(deb).toLocaleString('en-IN')}`;
-        } else if (cred > 0 && deb > 0) {
-          amt = Math.abs(cred - deb);
-          note = `Credit: ₹${Number(cred).toLocaleString('en-IN')}, Debit: ₹${Number(deb).toLocaleString('en-IN')}`;
-        }
-        allCategoriesMap.set(catName, amt);
-        totalDetails.set(catName, note);
-      });
-
-      // Sort categories: amount > 0 descending first, then 0 amount
-      const sortedEntries = Array.from(allCategoriesMap.entries()).sort((a, b) => {
-        if (b[1] !== a[1]) return b[1] - a[1];
-        return a[0].localeCompare(b[0]);
-      });
-
-      categories = sortedEntries.map(e => e[0]);
-      amounts = sortedEntries.map(e => e[1]);
-      datasetLabel = `Total Amount in ${monthLabel}`;
-      emptyMessage = `No categories found for ${monthLabel}`;
-      barColorPalette = ['#6e473b', '#c59b27', '#a07855', '#4e3027', '#e07a5f', '#81b29a', '#deb986', '#8d5b4c'];
-      tooltipFormatter = (val, catName) => {
-        const detail = totalDetails.get(catName) || '';
-        return ` Total: ₹${Number(val).toLocaleString('en-IN')} (${detail})`;
-      };
-    }
-
-    if (categories.length === 0) {
-      if (window.Chart && DOM.singleExpenseChart) {
-        if (DOM.singleExpenseFallback) DOM.singleExpenseFallback.classList.add('hidden');
-        DOM.singleExpenseChart.classList.remove('hidden');
-
-        if (state.charts.singleExpense) {
-          state.charts.singleExpense.destroy();
-        }
-
-        const ctx = DOM.singleExpenseChart.getContext('2d');
-        state.charts.singleExpense = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: [emptyMessage],
-            datasets: [{
-              label: datasetLabel,
-              data: [0],
-              backgroundColor: '#a07855',
-              borderRadius: 6,
-              maxBarThickness: 40
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: { enabled: false }
-            },
-            scales: {
-              x: {
-                grid: { display: false },
-                ticks: {
-                  font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600', size: 13 },
-                  color: '#786452'
-                }
-              },
-              y: {
-                min: 0,
-                max: 100,
-                grid: { color: '#e5dac8' },
-                ticks: { display: false }
-              }
-            }
+    // Also include any categories present in monthData
+    ['categoryTotals', 'categoryCredits', 'categoryDebits', 'categoryRemainings'].forEach(field => {
+      if (monthData && monthData[field]) {
+        Object.keys(monthData[field]).forEach(cat => {
+          if (!allCategoriesMap.has(cat)) {
+            allCategoriesMap.set(cat, 0);
           }
         });
-      } else if (DOM.singleExpenseFallback) {
-        DOM.singleExpenseFallback.classList.remove('hidden');
-        DOM.singleExpenseFallback.innerHTML = `
-          <div class="chart-empty-state" style="text-align: center; padding: 2rem; color: #786452;">
-            <i class="fa-solid fa-chart-simple" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.6;"></i>
-            <p style="margin: 0; font-weight: 600;">${escapeHTML(emptyMessage)}</p>
-          </div>
-        `;
       }
-      return;
+    });
+
+    const categoryNames = Array.from(allCategoriesMap.keys());
+    let categoryEntries = [];
+    let datasetLabel = '';
+    let barColorPalette = [];
+    let tooltipPrefix = '';
+
+    if (filterMode === 'credit') {
+      // CREDIT SECTION: "in the graph in all the section total credit debit remaing it shows all the category"
+      categoryEntries = categoryNames.map(cat => [cat, (monthData.categoryCredits && monthData.categoryCredits[cat]) || 0]);
+      datasetLabel = `Credit in ${monthLabel}`;
+      tooltipPrefix = 'Credit';
+      barColorPalette = ['#2d6a4f', '#40916c', '#52796f', '#74c69d', '#81b29a', '#386641', '#606c38'];
+    } else if (filterMode === 'debit') {
+      // DEBIT SECTION: "in the graph in all the section total credit debit remaing it shows all the category"
+      categoryEntries = categoryNames.map(cat => [cat, (monthData.categoryDebits && monthData.categoryDebits[cat]) || 0]);
+      datasetLabel = `Debit in ${monthLabel}`;
+      tooltipPrefix = 'Debit';
+      barColorPalette = ['#c05c46', '#9c412b', '#b85d43', '#8d5b4c', '#6e473b', '#d97757'];
+    } else if (filterMode === 'remaining') {
+      // REMAINING AMOUNT SECTION: "in the graph in all the section total credit debit remaing it shows all the category"
+      categoryEntries = categoryNames.map(cat => [cat, (monthData.categoryRemainings && monthData.categoryRemainings[cat]) || 0]);
+      datasetLabel = `Remaining Amount in ${monthLabel}`;
+      tooltipPrefix = 'Remaining';
+      barColorPalette = ['#6e473b', '#a07855', '#2b6cb0', '#2d6a4f', '#c59b27', '#deb986'];
+    } else {
+      // TOTAL SECTION: "in the graph in all the section total credit debit remaing it shows all the category"
+      categoryEntries = categoryNames.map(cat => [cat, (monthData.categoryTotals && monthData.categoryTotals[cat]) || 0]);
+      datasetLabel = `Total in ${monthLabel}`;
+      tooltipPrefix = 'Total';
+      barColorPalette = ['#c59b27', '#a07855', '#6e473b', '#4e3027', '#e07a5f', '#81b29a', '#deb986'];
     }
 
+    if (categoryEntries.length === 0) {
+      categoryEntries = [['No Categories', 0]];
+    }
+
+    // Sort: categories with amount > 0 first descending, then alphabetical for 0
+    categoryEntries.sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+
+    const categories = categoryEntries.map(e => e[0]);
+    const amounts = categoryEntries.map(e => e[1]);
     const maxVal = Math.max(...amounts, 10);
 
     // Custom Chart.js Plugin to render exact amounts above each bar
@@ -1523,7 +1496,7 @@
             const text = `₹${Number(val).toLocaleString('en-IN')}`;
             ctx.save();
             ctx.font = "bold 11px 'Plus Jakarta Sans', sans-serif";
-            ctx.fillStyle = '#4e3027';
+            ctx.fillStyle = val > 0 ? '#4e3027' : '#8d7b6d';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
             const yPos = Math.min(bar.y - 4, y.bottom - 4);
@@ -1569,11 +1542,7 @@
               callbacks: {
                 label: function (ctx) {
                   const val = ctx.raw || 0;
-                  const cat = ctx.label || '';
-                  if (tooltipFormatter) {
-                    return tooltipFormatter(val, cat);
-                  }
-                  return ` Amount: ₹${Number(val).toLocaleString('en-IN')}`;
+                  return ` ${tooltipPrefix}: ₹${Number(val).toLocaleString('en-IN')}`;
                 }
               }
             }
