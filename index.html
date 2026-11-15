@@ -252,8 +252,8 @@
             </button>
           </div>
 
-          <!-- Summary Banner Shown Only When Filters Are Applied (Total, Credit, Debit, Remaining Amount) -->
-          <div id="ledgerFilterSummaryBanner" class="expense-numbers-banner expense-summary-4col hidden" style="margin-top: 1.25rem;">
+          <!-- Summary Banner (Total, Credit, Debit, Remaining Amount) -->
+          <div id="ledgerFilterSummaryBanner" class="expense-numbers-banner expense-summary-4col" style="margin-top: 1.25rem;">
             <!-- 1. Total -->
             <div class="expense-summary-box total-box">
               <div class="summary-box-top-row">
@@ -458,7 +458,7 @@
           <div class="detail-month-filter-row mb-3" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 0.5rem;">
               <label for="detailFilterMonth" style="font-size: 0.825rem; font-weight: 700; color: var(--text-muted);">
-                <i class="fa-regular fa-calendar-days" style="color: var(--brown-primary);"></i> Filter Month:
+                <i class="fa-regular fa-calendar-days" style="color: var(--brown-primary);"></i> Month:
               </label>
               <select id="detailFilterMonth" class="form-input" style="padding: 0.35rem 0.75rem; font-weight: 700; font-size: 0.85rem; min-width: 160px;">
                 <option value="ALL">All Months</option>
@@ -470,10 +470,10 @@
             </span>
           </div>
 
-          <!-- Metrics (4 Boxes: Allocated, Credit, Spend, Remaining) -->
+          <!-- Metrics (4 Boxes: Total Amount, Credit, Debit, Remaining Balance) -->
           <div class="segregation-detail-metrics segregation-detail-4col">
             <div class="detail-metric-card">
-              <span class="label">How Much I Have (Allocated)</span>
+              <span class="label">Total Amount</span>
               <h3 id="detailAllocatedFund">₹0</h3>
             </div>
             <div class="detail-metric-card credit-card">
@@ -481,7 +481,7 @@
               <h3 id="detailTotalCredit" style="color: var(--credit-color);">₹0</h3>
             </div>
             <div class="detail-metric-card danger">
-              <span class="label">How Much I Spend</span>
+              <span class="label">Debit</span>
               <h3 id="detailTotalSpent">₹0</h3>
             </div>
             <div class="detail-metric-card success">

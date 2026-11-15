@@ -846,111 +846,97 @@
       filtered = filtered.filter(t => t.type === filterType);
     }
 
-    // Toggle and calculate summary banner when filter is applied (Image 1)
-    const isFilterActive = Boolean(selectedMonth || (filterSeg && filterSeg !== 'ALL') || (filterType && filterType !== 'ALL'));
+    // Calculate summary banner for Transaction History (Always shown; isolates numbers when Debit or Credit type chosen)
     if (DOM.ledgerFilterSummaryBanner) {
-      if (!isFilterActive) {
-        DOM.ledgerFilterSummaryBanner.classList.add('hidden');
-      } else {
-        DOM.ledgerFilterSummaryBanner.classList.remove('hidden');
+      DOM.ledgerFilterSummaryBanner.classList.remove('hidden');
 
-        let displayTotal = 0;
-        let displayCredit = 0;
-        let displayDebit = 0;
-        let displayRemaining = 0;
+      let baseTotal = 0;
+      let baseCredit = 0;
+      let baseDebit = 0;
+      let baseRemaining = 0;
 
-        if (selectedMonth) {
-          const aggregates = getMonthlyExpenseAggregates();
-          const targetMonthData = aggregates.monthsData.find(m => m.monthKey === selectedMonth) || {
-            carryForward: 0,
-            total: 0,
-            credit: 0,
-            debit: 0,
-            remaining: 0,
-            categoryCredits: {},
-            categoryDebits: {},
-            categoryTotals: {},
-            categoryRemainings: {}
-          };
+      if (selectedMonth) {
+        const aggregates = getMonthlyExpenseAggregates();
+        const targetMonthData = aggregates.monthsData.find(m => m.monthKey === selectedMonth) || {
+          carryForward: 0,
+          total: 0,
+          credit: 0,
+          debit: 0,
+          remaining: 0,
+          categoryCredits: {},
+          categoryDebits: {},
+          categoryTotals: {},
+          categoryRemainings: {}
+        };
 
-          if (filterSeg !== 'ALL') {
-            const segObj = state.segregations.find(s => s.id === filterSeg);
-            const segName = segObj ? segObj.name.trim() : '';
-            const catTot = (targetMonthData.categoryTotals && targetMonthData.categoryTotals[segName]) || 0;
-            const catCred = (targetMonthData.categoryCredits && targetMonthData.categoryCredits[segName]) || 0;
-            const catDeb = (targetMonthData.categoryDebits && targetMonthData.categoryDebits[segName]) || 0;
-            const catRem = (targetMonthData.categoryRemainings && targetMonthData.categoryRemainings[segName]) || 0;
-
-            if (filterType === 'EXPENSE') {
-              displayCredit = 0;
-              displayDebit = catDeb;
-              displayTotal = catTot;
-              displayRemaining = catTot - catDeb;
-            } else if (filterType === 'INCOME') {
-              displayCredit = catCred;
-              displayDebit = 0;
-              displayTotal = catTot;
-              displayRemaining = catTot;
-            } else {
-              displayCredit = catCred;
-              displayDebit = catDeb;
-              displayTotal = catTot;
-              displayRemaining = catRem;
-            }
-          } else {
-            if (filterType === 'EXPENSE') {
-              displayCredit = 0;
-              displayDebit = targetMonthData.debit || 0;
-              displayTotal = targetMonthData.total || 0;
-              displayRemaining = (targetMonthData.total || 0) - displayDebit;
-            } else if (filterType === 'INCOME') {
-              displayCredit = targetMonthData.credit || 0;
-              displayDebit = 0;
-              displayTotal = targetMonthData.total || 0;
-              displayRemaining = targetMonthData.total || 0;
-            } else {
-              displayCredit = targetMonthData.credit || 0;
-              displayDebit = targetMonthData.debit || 0;
-              displayTotal = targetMonthData.total || 0;
-              displayRemaining = targetMonthData.remaining !== undefined ? targetMonthData.remaining : (displayTotal - displayDebit);
-            }
-          }
-        } else if (filterSeg !== 'ALL') {
-          const metrics = getSegregationMetrics(filterSeg);
-          if (filterType === 'EXPENSE') {
-            displayCredit = 0;
-            displayDebit = metrics.spent;
-            displayTotal = metrics.allocated + metrics.topUps;
-            displayRemaining = displayTotal - displayDebit;
-          } else if (filterType === 'INCOME') {
-            displayCredit = metrics.topUps;
-            displayDebit = 0;
-            displayTotal = metrics.allocated + metrics.topUps;
-            displayRemaining = displayTotal;
-          } else {
-            displayCredit = metrics.topUps;
-            displayDebit = metrics.spent;
-            displayTotal = metrics.allocated + metrics.topUps;
-            displayRemaining = metrics.remaining;
-          }
+        if (filterSeg !== 'ALL') {
+          const segObj = state.segregations.find(s => s.id === filterSeg);
+          const segName = segObj ? segObj.name.trim() : '';
+          baseTotal = (targetMonthData.categoryTotals && targetMonthData.categoryTotals[segName]) || 0;
+          baseCredit = (targetMonthData.categoryCredits && targetMonthData.categoryCredits[segName]) || 0;
+          baseDebit = (targetMonthData.categoryDebits && targetMonthData.categoryDebits[segName]) || 0;
+          baseRemaining = (targetMonthData.categoryRemainings && targetMonthData.categoryRemainings[segName]) || 0;
         } else {
-          const incomeSum = filtered.filter(t => t.type === 'INCOME').reduce((s, t) => s + Number(t.amount || 0), 0);
-          const expenseSum = filtered.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + Number(t.amount || 0), 0);
-          displayCredit = incomeSum;
-          displayDebit = expenseSum;
-          displayTotal = incomeSum;
-          displayRemaining = incomeSum - expenseSum;
+          baseTotal = targetMonthData.total || 0;
+          baseCredit = targetMonthData.credit || 0;
+          baseDebit = targetMonthData.debit || 0;
+          baseRemaining = targetMonthData.remaining !== undefined ? targetMonthData.remaining : (baseTotal - baseDebit);
         }
+      } else if (filterSeg !== 'ALL') {
+        const metrics = getSegregationMetrics(filterSeg);
+        baseTotal = metrics.allocated + metrics.topUps;
+        baseCredit = metrics.topUps;
+        baseDebit = metrics.spent;
+        baseRemaining = metrics.remaining;
+      } else {
+        // No filter applied (all months, all categories): calculate all-time summary
+        let allTimeAllocated = 0;
+        let allTimeTopUps = 0;
+        let allTimeSpent = 0;
+        state.segregations.forEach(s => {
+          const m = getSegregationMetrics(s.id);
+          allTimeAllocated += m.allocated;
+          allTimeTopUps += m.topUps;
+          allTimeSpent += m.spent;
+        });
+        baseTotal = allTimeAllocated + allTimeTopUps;
+        baseCredit = allTimeTopUps;
+        baseDebit = allTimeSpent;
+        baseRemaining = baseTotal - baseDebit;
+      }
 
-        if (DOM.ledgerFilterTotal) DOM.ledgerFilterTotal.textContent = formatMoney(displayTotal);
-        if (DOM.ledgerFilterCredit) DOM.ledgerFilterCredit.textContent = formatMoney(displayCredit);
-        if (DOM.ledgerFilterDebit) DOM.ledgerFilterDebit.textContent = formatMoney(displayDebit);
-        if (DOM.ledgerFilterRemaining) {
-          DOM.ledgerFilterRemaining.textContent = displayRemaining >= 0
-            ? formatMoney(displayRemaining)
-            : `-₹${Math.abs(displayRemaining).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-          DOM.ledgerFilterRemaining.style.color = displayRemaining >= 0 ? 'var(--credit-color)' : 'var(--debit-color)';
-        }
+      // If user chooses Debit: numbers only in debit, other sections must be zero
+      // If user chooses Credit: numbers only in credit, other sections must be zero
+      let displayTotal = 0;
+      let displayCredit = 0;
+      let displayDebit = 0;
+      let displayRemaining = 0;
+
+      if (filterType === 'EXPENSE') {
+        displayTotal = 0;
+        displayCredit = 0;
+        displayDebit = baseDebit;
+        displayRemaining = 0;
+      } else if (filterType === 'INCOME') {
+        displayTotal = 0;
+        displayCredit = baseCredit;
+        displayDebit = 0;
+        displayRemaining = 0;
+      } else {
+        displayTotal = baseTotal;
+        displayCredit = baseCredit;
+        displayDebit = baseDebit;
+        displayRemaining = baseRemaining;
+      }
+
+      if (DOM.ledgerFilterTotal) DOM.ledgerFilterTotal.textContent = formatMoney(displayTotal);
+      if (DOM.ledgerFilterCredit) DOM.ledgerFilterCredit.textContent = formatMoney(displayCredit);
+      if (DOM.ledgerFilterDebit) DOM.ledgerFilterDebit.textContent = formatMoney(displayDebit);
+      if (DOM.ledgerFilterRemaining) {
+        DOM.ledgerFilterRemaining.textContent = displayRemaining >= 0
+          ? formatMoney(displayRemaining)
+          : `-₹${Math.abs(displayRemaining).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+        DOM.ledgerFilterRemaining.style.color = displayRemaining >= 0 ? 'var(--credit-color)' : 'var(--debit-color)';
       }
     }
 
@@ -1851,17 +1837,17 @@
       DOM.detailSegregationTitle.textContent = `${seg.name} Details`;
     }
 
-    // 1. Calculate 4 metric boxes (How Much I Have / Allocated, Credit, How Much I Spend, Remaining Balance)
-    let allocated = 0;
+    // 1. Calculate 4 metric boxes (Total Amount = allocated + credit, Credit, Debit, Remaining Balance)
+    let totalAmount = 0;
     let credit = 0;
-    let spend = 0;
+    let debit = 0;
     let remaining = 0;
 
     if (selectedMonthKey === 'ALL') {
       const metrics = getSegregationMetrics(segId);
-      allocated = metrics.allocated;
       credit = metrics.topUps;
-      spend = metrics.spent;
+      totalAmount = metrics.allocated + credit; // Total amount = allocated amount + credit
+      debit = metrics.spent;
       remaining = metrics.remaining;
       if (DOM.detailFilterMonthBadge) {
         DOM.detailFilterMonthBadge.textContent = 'All Months';
@@ -1880,11 +1866,10 @@
       const catCred = (monthData.categoryCredits && monthData.categoryCredits[segName]) || 0;
       const catDeb = (monthData.categoryDebits && monthData.categoryDebits[segName]) || 0;
       const catRem = (monthData.categoryRemainings && monthData.categoryRemainings[segName]) || 0;
-      const catCarry = catTot - catCred;
 
-      allocated = catCarry;
+      totalAmount = catTot; // Total amount = allocated/carried + credit
       credit = catCred;
-      spend = catDeb;
+      debit = catDeb;
       remaining = catRem;
 
       if (DOM.detailFilterMonthBadge) {
@@ -1892,9 +1877,9 @@
       }
     }
 
-    if (DOM.detailAllocatedFund) DOM.detailAllocatedFund.textContent = formatMoney(allocated);
+    if (DOM.detailAllocatedFund) DOM.detailAllocatedFund.textContent = formatMoney(totalAmount);
     if (DOM.detailTotalCredit) DOM.detailTotalCredit.textContent = formatMoney(credit);
-    if (DOM.detailTotalSpent) DOM.detailTotalSpent.textContent = formatMoney(spend);
+    if (DOM.detailTotalSpent) DOM.detailTotalSpent.textContent = formatMoney(debit);
     if (DOM.detailRemainingFund) {
       DOM.detailRemainingFund.textContent = remaining >= 0
         ? formatMoney(remaining)
