@@ -252,6 +252,47 @@
             </button>
           </div>
 
+          <!-- Summary Banner Shown Only When Filters Are Applied (Total, Credit, Debit, Remaining Amount) -->
+          <div id="ledgerFilterSummaryBanner" class="expense-numbers-banner expense-summary-4col hidden" style="margin-top: 1.25rem;">
+            <!-- 1. Total -->
+            <div class="expense-summary-box total-box">
+              <div class="summary-box-top-row">
+                <span class="numbers-label"><i class="fa-solid fa-coins" style="color: var(--brown-primary);"></i> Total</span>
+              </div>
+              <div class="numbers-main-amount" id="ledgerFilterTotal">₹0</div>
+            </div>
+
+            <div class="expense-summary-divider"></div>
+
+            <!-- 2. Credit -->
+            <div class="expense-summary-box credit-box">
+              <div class="summary-box-top-row">
+                <span class="numbers-label"><i class="fa-solid fa-arrow-up" style="color: var(--credit-color);"></i> Credit</span>
+              </div>
+              <div class="numbers-main-amount text-credit" id="ledgerFilterCredit">₹0</div>
+            </div>
+
+            <div class="expense-summary-divider"></div>
+
+            <!-- 3. Debit -->
+            <div class="expense-summary-box debit-box">
+              <div class="summary-box-top-row">
+                <span class="numbers-label"><i class="fa-solid fa-arrow-down" style="color: var(--debit-color);"></i> Debit</span>
+              </div>
+              <div class="numbers-main-amount text-debit" id="ledgerFilterDebit">₹0</div>
+            </div>
+
+            <div class="expense-summary-divider"></div>
+
+            <!-- 4. Remaining Amount -->
+            <div class="expense-summary-box remaining-box">
+              <div class="summary-box-top-row">
+                <span class="numbers-label"><i class="fa-solid fa-wallet" style="color: var(--brown-primary);"></i> Remaining Amount</span>
+              </div>
+              <div class="numbers-main-amount" id="ledgerFilterRemaining">₹0</div>
+            </div>
+          </div>
+
           <!-- Transaction History Statement Table -->
           <div class="table-responsive mt-3">
             <table class="passbook-table">
@@ -413,11 +454,31 @@
         </div>
 
         <div class="modal-body">
-          <!-- Metrics -->
-          <div class="segregation-detail-metrics">
+          <!-- Month Filter Option for Category (Months Only) -->
+          <div class="detail-month-filter-row mb-3" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <label for="detailFilterMonth" style="font-size: 0.825rem; font-weight: 700; color: var(--text-muted);">
+                <i class="fa-regular fa-calendar-days" style="color: var(--brown-primary);"></i> Filter Month:
+              </label>
+              <select id="detailFilterMonth" class="form-input" style="padding: 0.35rem 0.75rem; font-weight: 700; font-size: 0.85rem; min-width: 160px;">
+                <option value="ALL">All Months</option>
+                <!-- Populated dynamically with months only -->
+              </select>
+            </div>
+            <span id="detailFilterMonthBadge" class="common-period-badge" style="font-size: 0.8rem; padding: 0.2rem 0.6rem;">
+              All Months
+            </span>
+          </div>
+
+          <!-- Metrics (4 Boxes: Allocated, Credit, Spend, Remaining) -->
+          <div class="segregation-detail-metrics segregation-detail-4col">
             <div class="detail-metric-card">
               <span class="label">How Much I Have (Allocated)</span>
               <h3 id="detailAllocatedFund">₹0</h3>
+            </div>
+            <div class="detail-metric-card credit-card">
+              <span class="label">Credit</span>
+              <h3 id="detailTotalCredit" style="color: var(--credit-color);">₹0</h3>
             </div>
             <div class="detail-metric-card danger">
               <span class="label">How Much I Spend</span>

@@ -200,6 +200,11 @@
     DOM.btnClearFilters = document.getElementById('btnClearFilters');
     DOM.bankStatementBody = document.getElementById('bankStatementBody');
     DOM.btnDownloadPDF = document.getElementById('btnDownloadPDF');
+    DOM.ledgerFilterSummaryBanner = document.getElementById('ledgerFilterSummaryBanner');
+    DOM.ledgerFilterTotal = document.getElementById('ledgerFilterTotal');
+    DOM.ledgerFilterCredit = document.getElementById('ledgerFilterCredit');
+    DOM.ledgerFilterDebit = document.getElementById('ledgerFilterDebit');
+    DOM.ledgerFilterRemaining = document.getElementById('ledgerFilterRemaining');
 
     // My Notes Tab
     DOM.personalNoteTitleInput = document.getElementById('personalNoteTitleInput');
@@ -220,7 +225,10 @@
     // Detail Modal
     DOM.modalSegregationDetail = document.getElementById('modalSegregationDetail');
     DOM.detailSegregationTitle = document.getElementById('detailSegregationTitle');
+    DOM.detailFilterMonth = document.getElementById('detailFilterMonth');
+    DOM.detailFilterMonthBadge = document.getElementById('detailFilterMonthBadge');
     DOM.detailAllocatedFund = document.getElementById('detailAllocatedFund');
+    DOM.detailTotalCredit = document.getElementById('detailTotalCredit');
     DOM.detailTotalSpent = document.getElementById('detailTotalSpent');
     DOM.detailRemainingFund = document.getElementById('detailRemainingFund');
     DOM.btnQuickAddBucketExpense = document.getElementById('btnQuickAddBucketExpense');
@@ -441,6 +449,7 @@
 
     // Filters
     DOM.filterMonth.addEventListener('change', renderBankStatementLedger);
+    DOM.filterMonth.addEventListener('input', renderBankStatementLedger);
     DOM.filterSegregation.addEventListener('change', renderBankStatementLedger);
     DOM.filterType.addEventListener('change', renderBankStatementLedger);
     DOM.btnClearFilters.addEventListener('click', () => {
@@ -449,6 +458,15 @@
       DOM.filterType.value = 'ALL';
       renderBankStatementLedger();
     });
+
+    // Category Detail Modal Month Filter
+    if (DOM.detailFilterMonth) {
+      DOM.detailFilterMonth.addEventListener('change', () => {
+        if (state.activeDetailSegregationId) {
+          renderSegregationDetailView(state.activeDetailSegregationId, DOM.detailFilterMonth.value);
+        }
+      });
+    }
 
     // Save Personal Note
     DOM.btnSavePersonalNote.addEventListener('click', handleSavePersonalNote);
@@ -685,6 +703,9 @@
     renderPersonalNotesTab();
     renderSettingsTab();
     populateSegregationDropdowns();
+    if (DOM.modalSegregationDetail && DOM.modalSegregationDetail.open && state.activeDetailSegregationId) {
+      renderSegregationDetailView(state.activeDetailSegregationId, DOM.detailFilterMonth ? DOM.detailFilterMonth.value : 'ALL');
+    }
   }
 
   // RENDER DASHBOARD EXECUTIVE LEDGER (EXACT NOTEBOOK FORMAT: Name ......... Amount)
@@ -823,6 +844,114 @@
     }
     if (filterType !== 'ALL') {
       filtered = filtered.filter(t => t.type === filterType);
+    }
+
+    // Toggle and calculate summary banner when filter is applied (Image 1)
+    const isFilterActive = Boolean(selectedMonth || (filterSeg && filterSeg !== 'ALL') || (filterType && filterType !== 'ALL'));
+    if (DOM.ledgerFilterSummaryBanner) {
+      if (!isFilterActive) {
+        DOM.ledgerFilterSummaryBanner.classList.add('hidden');
+      } else {
+        DOM.ledgerFilterSummaryBanner.classList.remove('hidden');
+
+        let displayTotal = 0;
+        let displayCredit = 0;
+        let displayDebit = 0;
+        let displayRemaining = 0;
+
+        if (selectedMonth) {
+          const aggregates = getMonthlyExpenseAggregates();
+          const targetMonthData = aggregates.monthsData.find(m => m.monthKey === selectedMonth) || {
+            carryForward: 0,
+            total: 0,
+            credit: 0,
+            debit: 0,
+            remaining: 0,
+            categoryCredits: {},
+            categoryDebits: {},
+            categoryTotals: {},
+            categoryRemainings: {}
+          };
+
+          if (filterSeg !== 'ALL') {
+            const segObj = state.segregations.find(s => s.id === filterSeg);
+            const segName = segObj ? segObj.name.trim() : '';
+            const catTot = (targetMonthData.categoryTotals && targetMonthData.categoryTotals[segName]) || 0;
+            const catCred = (targetMonthData.categoryCredits && targetMonthData.categoryCredits[segName]) || 0;
+            const catDeb = (targetMonthData.categoryDebits && targetMonthData.categoryDebits[segName]) || 0;
+            const catRem = (targetMonthData.categoryRemainings && targetMonthData.categoryRemainings[segName]) || 0;
+
+            if (filterType === 'EXPENSE') {
+              displayCredit = 0;
+              displayDebit = catDeb;
+              displayTotal = catTot;
+              displayRemaining = catTot - catDeb;
+            } else if (filterType === 'INCOME') {
+              displayCredit = catCred;
+              displayDebit = 0;
+              displayTotal = catTot;
+              displayRemaining = catTot;
+            } else {
+              displayCredit = catCred;
+              displayDebit = catDeb;
+              displayTotal = catTot;
+              displayRemaining = catRem;
+            }
+          } else {
+            if (filterType === 'EXPENSE') {
+              displayCredit = 0;
+              displayDebit = targetMonthData.debit || 0;
+              displayTotal = targetMonthData.total || 0;
+              displayRemaining = (targetMonthData.total || 0) - displayDebit;
+            } else if (filterType === 'INCOME') {
+              displayCredit = targetMonthData.credit || 0;
+              displayDebit = 0;
+              displayTotal = targetMonthData.total || 0;
+              displayRemaining = targetMonthData.total || 0;
+            } else {
+              displayCredit = targetMonthData.credit || 0;
+              displayDebit = targetMonthData.debit || 0;
+              displayTotal = targetMonthData.total || 0;
+              displayRemaining = targetMonthData.remaining !== undefined ? targetMonthData.remaining : (displayTotal - displayDebit);
+            }
+          }
+        } else if (filterSeg !== 'ALL') {
+          const metrics = getSegregationMetrics(filterSeg);
+          if (filterType === 'EXPENSE') {
+            displayCredit = 0;
+            displayDebit = metrics.spent;
+            displayTotal = metrics.allocated + metrics.topUps;
+            displayRemaining = displayTotal - displayDebit;
+          } else if (filterType === 'INCOME') {
+            displayCredit = metrics.topUps;
+            displayDebit = 0;
+            displayTotal = metrics.allocated + metrics.topUps;
+            displayRemaining = displayTotal;
+          } else {
+            displayCredit = metrics.topUps;
+            displayDebit = metrics.spent;
+            displayTotal = metrics.allocated + metrics.topUps;
+            displayRemaining = metrics.remaining;
+          }
+        } else {
+          const incomeSum = filtered.filter(t => t.type === 'INCOME').reduce((s, t) => s + Number(t.amount || 0), 0);
+          const expenseSum = filtered.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + Number(t.amount || 0), 0);
+          displayCredit = incomeSum;
+          displayDebit = expenseSum;
+          displayTotal = incomeSum;
+          displayRemaining = incomeSum - expenseSum;
+        }
+
+        if (DOM.ledgerFilterTotal) DOM.ledgerFilterTotal.textContent = formatMoney(displayTotal);
+        if (DOM.ledgerFilterCredit) DOM.ledgerFilterCredit.textContent = formatMoney(displayCredit);
+        if (DOM.ledgerFilterDebit) DOM.ledgerFilterDebit.textContent = formatMoney(displayDebit);
+        if (DOM.ledgerFilterRemaining) {
+          DOM.ledgerFilterRemaining.textContent = displayRemaining >= 0
+            ? formatMoney(displayRemaining)
+            : `-₹${Math.abs(displayRemaining).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+          DOM.ledgerFilterRemaining.style.color = displayRemaining >= 0 ? 'var(--credit-color)' : 'var(--debit-color)';
+        }
+      }
     }
 
     // SORT MOST RECENT / NEWEST TRANSACTIONS ON TOP (FIRST PLACE)!
@@ -1701,20 +1830,79 @@
     window.print();
   }
 
-  // OPEN SPECIFIC CATEGORY DETAIL MODAL (SHOWS HOW MUCH I HAVE, SPEND, & HISTORY FOR THAT CATEGORY ONLY)
-  function openSegregationDetailModal(segId) {
+  // POPULATE MONTH-ONLY FILTER IN CATEGORY DETAIL MODAL
+  function populateDetailMonthFilter(segId) {
+    if (!DOM.detailFilterMonth) return;
+    const { keys } = getAvailableExpenseMonths();
+    const reversedKeys = [...keys].reverse();
+    DOM.detailFilterMonth.innerHTML = `
+      <option value="ALL">All Months</option>
+      ${reversedKeys.map(k => `<option value="${k}">${formatMonthLabel(k)}</option>`).join('')}
+    `;
+    DOM.detailFilterMonth.value = 'ALL';
+  }
+
+  // RENDER CATEGORY DETAIL MODAL VIEW (METRIC BOXES + TRANSACTIONS LIST ACCORDING TO FILTER)
+  function renderSegregationDetailView(segId, selectedMonthKey = 'ALL') {
     const seg = state.segregations.find(s => s.id === segId);
     if (!seg) return;
 
-    state.activeDetailSegregationId = segId;
-    const metrics = getSegregationMetrics(segId);
+    if (DOM.detailSegregationTitle) {
+      DOM.detailSegregationTitle.textContent = `${seg.name} Details`;
+    }
 
-    DOM.detailSegregationTitle.textContent = `${seg.name} Details`;
-    DOM.detailAllocatedFund.textContent = formatMoney(metrics.allocated + metrics.topUps);
-    DOM.detailTotalSpent.textContent = formatMoney(metrics.spent);
-    DOM.detailRemainingFund.textContent = formatMoney(metrics.remaining);
+    // 1. Calculate 4 metric boxes (How Much I Have / Allocated, Credit, How Much I Spend, Remaining Balance)
+    let allocated = 0;
+    let credit = 0;
+    let spend = 0;
+    let remaining = 0;
 
-    // Calculate running balance in chronological order (oldest to newest)
+    if (selectedMonthKey === 'ALL') {
+      const metrics = getSegregationMetrics(segId);
+      allocated = metrics.allocated;
+      credit = metrics.topUps;
+      spend = metrics.spent;
+      remaining = metrics.remaining;
+      if (DOM.detailFilterMonthBadge) {
+        DOM.detailFilterMonthBadge.textContent = 'All Months';
+      }
+    } else {
+      const aggregates = getMonthlyExpenseAggregates();
+      const monthData = aggregates.monthsData.find(m => m.monthKey === selectedMonthKey) || {
+        categoryTotals: {},
+        categoryCredits: {},
+        categoryDebits: {},
+        categoryRemainings: {}
+      };
+
+      const segName = seg.name.trim();
+      const catTot = (monthData.categoryTotals && monthData.categoryTotals[segName]) || 0;
+      const catCred = (monthData.categoryCredits && monthData.categoryCredits[segName]) || 0;
+      const catDeb = (monthData.categoryDebits && monthData.categoryDebits[segName]) || 0;
+      const catRem = (monthData.categoryRemainings && monthData.categoryRemainings[segName]) || 0;
+      const catCarry = catTot - catCred;
+
+      allocated = catCarry;
+      credit = catCred;
+      spend = catDeb;
+      remaining = catRem;
+
+      if (DOM.detailFilterMonthBadge) {
+        DOM.detailFilterMonthBadge.textContent = formatMonthLabel(selectedMonthKey);
+      }
+    }
+
+    if (DOM.detailAllocatedFund) DOM.detailAllocatedFund.textContent = formatMoney(allocated);
+    if (DOM.detailTotalCredit) DOM.detailTotalCredit.textContent = formatMoney(credit);
+    if (DOM.detailTotalSpent) DOM.detailTotalSpent.textContent = formatMoney(spend);
+    if (DOM.detailRemainingFund) {
+      DOM.detailRemainingFund.textContent = remaining >= 0
+        ? formatMoney(remaining)
+        : `-₹${Math.abs(remaining).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+      DOM.detailRemainingFund.style.color = remaining >= 0 ? 'var(--credit-color)' : 'var(--debit-color)';
+    }
+
+    // 2. Calculate running balance in chronological order (oldest to newest)
     const chronological = state.transactions
       .map((t, idx) => ({ ...t, _origIdx: idx }))
       .filter(t => t.segregationId === segId)
@@ -1735,16 +1923,23 @@
       balanceMap.set(t.id, runningBal);
     });
 
-    // History for this Specific Category ONLY (Newest on Top)
-    const segTxs = [...chronological].sort((a, b) => new Date(b.date) - new Date(a.date) || b._origIdx - a._origIdx);
+    // 3. Filter transactions for this category by month if selected
+    let segTxs = [...chronological];
+    if (selectedMonthKey !== 'ALL') {
+      segTxs = segTxs.filter(t => normalizeMonthKey(t.date, t.monthKey) === selectedMonthKey);
+    }
+
+    // Sort newest on top
+    segTxs.sort((a, b) => new Date(b.date) - new Date(a.date) || b._origIdx - a._origIdx);
 
     DOM.detailTransactionsTableBody.innerHTML = '';
 
     if (segTxs.length === 0) {
+      const periodName = selectedMonthKey === 'ALL' ? 'yet' : `in ${formatMonthLabel(selectedMonthKey)}`;
       DOM.detailTransactionsTableBody.innerHTML = `
         <tr>
           <td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">
-            No transactions logged for ${escapeHTML(seg.name)} yet.
+            No transactions logged for ${escapeHTML(seg.name)} ${periodName}.
           </td>
         </tr>
       `;
@@ -1789,7 +1984,7 @@
             saveTransactionsToStorage();
             saveSavingsVaultToStorage();
             renderAll();
-            openSegregationDetailModal(segId);
+            renderSegregationDetailView(segId, DOM.detailFilterMonth ? DOM.detailFilterMonth.value : 'ALL');
             showToast('Transaction entry deleted successfully!', 'info');
           }
         });
@@ -1797,6 +1992,16 @@
         DOM.detailTransactionsTableBody.appendChild(tr);
       });
     }
+  }
+
+  // OPEN SPECIFIC CATEGORY DETAIL MODAL (SHOWS 4 BOXES & HISTORY ACCORDING TO MONTH FILTER)
+  function openSegregationDetailModal(segId) {
+    const seg = state.segregations.find(s => s.id === segId);
+    if (!seg) return;
+
+    state.activeDetailSegregationId = segId;
+    populateDetailMonthFilter(segId);
+    renderSegregationDetailView(segId, 'ALL');
 
     DOM.modalSegregationDetail.showModal();
   }

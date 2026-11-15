@@ -801,22 +801,38 @@ dialog#modalSegregationDetail,
 
 .segregation-detail-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.85rem;
   margin-bottom: 1.25rem;
 }
 
 .detail-metric-card {
   background-color: var(--bg-card-hover);
-  padding: 1rem;
+  padding: 0.9rem 1rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
+  min-width: 0;
 }
 
-.detail-metric-card .label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; }
-.detail-metric-card h3 { font-size: 1.3rem; font-weight: 800; margin-top: 0.2rem; }
+.detail-metric-card .label { font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; white-space: nowrap; }
+.detail-metric-card h3 { font-size: 1.3rem; font-weight: 800; margin-top: 0.25rem; white-space: nowrap; }
+.detail-metric-card.credit-card h3 { color: var(--credit-color); }
 .detail-metric-card.danger h3 { color: var(--debit-color); }
 .detail-metric-card.success h3 { color: var(--credit-color); }
+
+@media (max-width: 768px) {
+  .segregation-detail-metrics {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .segregation-detail-metrics {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+}
 
 .detail-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
 
