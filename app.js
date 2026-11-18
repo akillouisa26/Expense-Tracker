@@ -12,7 +12,9 @@
     SAVINGS_VAULT: 'akil_tracker_savings_vault_v7',
     PERSONAL_NOTES: 'akil_tracker_personal_notes_v5',
     FIREBASE_CONFIG: 'akil_tracker_firebase_config_v5',
-    SECURITY_SETTINGS: 'akil_tracker_security_settings_v5'
+    SECURITY_SETTINGS: 'akil_tracker_security_settings_v5',
+    DELETED_IDS: 'akil_tracker_deleted_ids_v7',
+    LAST_LOCAL_UPDATE: 'akil_tracker_last_local_update_v7'
   };
 
   // App State
@@ -27,6 +29,9 @@
     transactions: [],
     savingsVault: [],
     personalNotes: [],
+    deletedIds: new Set(),
+    lastLocalUpdate: 0,
+    hasPendingSync: false,
     firebaseConfig: null,
     db: null,
     auth: null,
@@ -297,6 +302,47 @@
       saveTransactionsToStorage();
     }
 
+    // Load Savings Vault
+    const savedVault = JSON.parse(localStorage.getItem(STORAGE_KEYS.SAVINGS_VAULT) || 'null');
+    if (savedVault && Array.isArray(savedVault)) {
+      state.savingsVault = savedVault;
+    } else {
+      state.savingsVault = [];
+    }
+
+    // Load Deleted IDs (Tombstones to prevent resurrecting deleted items)
+    try {
+      const savedDeleted = JSON.parse(localStorage.getItem(STORAGE_KEYS.DELETED_IDS) || '[]');
+      state.deletedIds = new Set(Array.isArray(savedDeleted) ? savedDeleted : []);
+    } catch (e) {
+      state.deletedIds = new Set();
+    }
+
+    // Load Last Local Update Timestamp
+    state.lastLocalUpdate = parseInt(localStorage.getItem(STORAGE_KEYS.LAST_LOCAL_UPDATE) || '0', 10) || 0;
+
+    // Backfill timestamps if missing on existing items
+    const nowTs = Date.now();
+    state.transactions.forEach(t => {
+      if (!t.createdAt) {
+        const idMatch = typeof t.id === 'string' ? t.id.match(/\d{10,}/) : null;
+        t.createdAt = idMatch ? parseInt(idMatch[0], 10) : nowTs;
+      }
+      if (!t.updatedAt) {
+        t.updatedAt = t.createdAt;
+      }
+    });
+
+    state.segregations.forEach(s => {
+      if (!s.createdAt) {
+        const idMatch = typeof s.id === 'string' ? s.id.match(/\d{10,}/) : null;
+        s.createdAt = idMatch ? parseInt(idMatch[0], 10) : nowTs;
+      }
+      if (!s.updatedAt) {
+        s.updatedAt = s.createdAt;
+      }
+    });
+
     // Purge any default/auto-created empty Savings category if it has 0 transactions & 0 allocation
     purgeEmptyDefaultSavings();
 
@@ -352,22 +398,44 @@
     localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
   }
 
+  function recordLocalMutation() {
+    state.lastLocalUpdate = Date.now();
+    localStorage.setItem(STORAGE_KEYS.LAST_LOCAL_UPDATE, String(state.lastLocalUpdate));
+    state.hasPendingSync = true;
+  }
+
+  function markIdAsDeleted(id) {
+    if (!id) return;
+    if (!state.deletedIds) state.deletedIds = new Set();
+    state.deletedIds.add(id);
+    if (state.deletedIds.size > 500) {
+      const arr = Array.from(state.deletedIds);
+      state.deletedIds = new Set(arr.slice(arr.length - 400));
+    }
+    localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(state.deletedIds)));
+    recordLocalMutation();
+  }
+
   function saveSegregationsToStorage() {
+    recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
     syncToFirebase();
   }
 
   function saveTransactionsToStorage() {
+    recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
     syncToFirebase();
   }
 
   function saveSavingsVaultToStorage() {
+    recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.SAVINGS_VAULT, JSON.stringify(state.savingsVault));
     syncToFirebase();
   }
 
   function saveNotesToStorage() {
+    recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
     syncToFirebase();
   }
@@ -800,8 +868,11 @@
 
       tr.querySelector('.btn-delete-sav').addEventListener('click', () => {
         if (confirm('Are you sure you want to delete this savings entry?')) {
+          markIdAsDeleted(entry.id);
+          markIdAsDeleted(`tx_sav_${entry.id}`);
+          markIdAsDeleted(`tx_${entry.id}`);
           state.savingsVault = state.savingsVault.filter(s => s.id !== entry.id);
-          state.transactions = state.transactions.filter(t => t.id !== entry.id && t.id !== `tx_sav_${entry.id}`);
+          state.transactions = state.transactions.filter(t => t.id !== entry.id && t.id !== `tx_sav_${entry.id}` && t.id !== `tx_${entry.id}`);
           saveSavingsVaultToStorage();
           saveTransactionsToStorage();
           renderAll();
@@ -1116,6 +1187,7 @@
     note.title = title;
     note.date = date;
     note.amount = amount;
+    note.updatedAt = Date.now();
 
     saveNotesToStorage();
     if (DOM.modalEditNote) DOM.modalEditNote.close();
@@ -1136,12 +1208,15 @@
       return;
     }
 
+    const now = Date.now();
     const noteObj = {
-      id: 'note_' + Date.now(),
+      id: 'note_' + now,
       title,
       amount,
       isCompleted: false,
-      date
+      date,
+      createdAt: now,
+      updatedAt: now
     };
 
     state.personalNotes.unshift(noteObj);
@@ -1160,6 +1235,7 @@
     const note = state.personalNotes.find(n => n.id === noteId);
     if (!note) return;
     note.isCompleted = !note.isCompleted;
+    note.updatedAt = Date.now();
     saveNotesToStorage();
     renderPersonalNotesTab();
     renderDashboardReminders();
@@ -1168,6 +1244,7 @@
 
   function deletePersonalNote(noteId) {
     if (!confirm('Delete this note?')) return;
+    markIdAsDeleted(noteId);
     state.personalNotes = state.personalNotes.filter(n => n.id !== noteId);
     saveNotesToStorage();
     renderPersonalNotesTab();
@@ -1964,8 +2041,12 @@
           if (confirm('Are you sure you want to delete this transaction entry?')) {
             const tx = state.transactions.find(item => item.id === t.id);
             const linkedId = tx ? tx.linkedTransferId : null;
+            markIdAsDeleted(t.id);
+            if (linkedId) markIdAsDeleted(linkedId);
+            markIdAsDeleted(`tx_sav_${t.id}`);
+            markIdAsDeleted(`tx_${t.id}`);
             state.transactions = state.transactions.filter(item => item.id !== t.id && (!linkedId || item.id !== linkedId));
-            state.savingsVault = state.savingsVault.filter(s => s.id !== t.id && `tx_sav_${s.id}` !== t.id);
+            state.savingsVault = state.savingsVault.filter(s => s.id !== t.id && `tx_sav_${s.id}` !== t.id && `tx_${s.id}` !== t.id);
             saveTransactionsToStorage();
             saveSavingsVaultToStorage();
             renderAll();
@@ -2142,11 +2223,13 @@
     if (savId) {
       // EDIT MODE
       const entry = state.savingsVault.find(s => s.id === savId);
+      const now = Date.now();
       if (entry) {
         entry.date = date;
         entry.particulars = note;
         entry.amount = amount;
         entry.type = type;
+        entry.updatedAt = now;
       }
 
       // Also update linked transaction in state.transactions
@@ -2156,16 +2239,20 @@
         linkedTx.amount = amount;
         linkedTx.type = type;
         linkedTx.note = note;
+        linkedTx.updatedAt = now;
       }
     } else {
       // NEW ENTRY MODE
-      const newSavId = 'sav_' + Date.now();
+      const now = Date.now();
+      const newSavId = 'sav_' + now;
       const savObj = {
         id: newSavId,
         date,
         particulars: note,
         amount,
-        type
+        type,
+        createdAt: now,
+        updatedAt: now
       };
       state.savingsVault.push(savObj);
 
@@ -2178,7 +2265,9 @@
           amount,
           date,
           monthKey: getCurrentMonthKey(new Date(date)),
-          note: type === 'EXPENSE' ? `Savings Withdrawal: ${note}` : `Add Money to Savings (${note})`
+          note: type === 'EXPENSE' ? `Savings Withdrawal: ${note}` : `Add Money to Savings (${note})`,
+          createdAt: now,
+          updatedAt: now
         });
       }
     }
@@ -2309,6 +2398,8 @@
     const targetSeg = state.segregations.find(s => s.id === segId);
     const destSeg = (type === 'EXPENSE') ? findDestinationCategory(note, segId) : null;
 
+    const now = Date.now();
+
     if (txId) {
       // EDIT TRANSACTION MODE
       const tx = state.transactions.find(t => t.id === txId);
@@ -2322,12 +2413,14 @@
         tx.date = date;
         tx.note = note;
         tx.monthKey = getCurrentMonthKey(new Date(date));
+        tx.updatedAt = now;
 
         // If editing initial creation transaction, sync category allocatedFund too!
         const isInitTx = tx.id.startsWith('tx_create_') || tx.id.startsWith('tx_init_') || tx.note === 'New Category Created' || tx.note === 'Initial Allocation';
         if (isInitTx) {
           if (targetSeg) {
             targetSeg.allocatedFund = amount;
+            targetSeg.updatedAt = now;
             saveSegregationsToStorage();
           }
         }
@@ -2343,15 +2436,17 @@
               linkedTx.date = date;
               linkedTx.monthKey = getCurrentMonthKey(new Date(date));
               linkedTx.note = `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`;
+              linkedTx.updatedAt = now;
             } else {
               // Note no longer mentions a category, remove the paired transfer
+              markIdAsDeleted(tx.linkedTransferId);
               state.transactions = state.transactions.filter(t => t.id !== tx.linkedTransferId);
               delete tx.linkedTransferId;
             }
           }
         } else if (type === 'EXPENSE' && destSeg) {
           // Previously didn't have linked transfer, now has one
-          const autoTxId = 'tx_auto_' + Date.now();
+          const autoTxId = 'tx_auto_' + now;
           tx.linkedTransferId = autoTxId;
 
           state.transactions.push({
@@ -2363,14 +2458,30 @@
             date: date,
             monthKey: getCurrentMonthKey(new Date(date)),
             note: `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`,
-            linkedTransferId: tx.id
+            linkedTransferId: tx.id,
+            createdAt: now,
+            updatedAt: now
           });
           showToast(`₹${amount} automatically credited to ${destSeg.name}!`, 'info');
+        }
+
+        // If editing an entry originating from savings vault, keep savingsVault in sync
+        if (tx.id.startsWith('tx_sav_') || tx.id.startsWith('sav_')) {
+          const savId = tx.id.replace('tx_', '');
+          const savEntry = state.savingsVault.find(s => s.id === savId || s.id === tx.id);
+          if (savEntry) {
+            savEntry.amount = amount;
+            savEntry.date = date;
+            savEntry.particulars = note;
+            savEntry.type = type;
+            savEntry.updatedAt = now;
+            saveSavingsVaultToStorage();
+          }
         }
       }
     } else {
       // NEW TRANSACTION MODE
-      const newTxId = 'tx_' + Date.now();
+      const newTxId = 'tx_' + now;
       const txObj = {
         id: newTxId,
         segregationId: segId,
@@ -2379,12 +2490,14 @@
         amount,
         date,
         monthKey: getCurrentMonthKey(new Date(date)),
-        note
+        note,
+        createdAt: now,
+        updatedAt: now
       };
 
       // AUTO-TRANSFER: IF EXPENSE MENTIONS ANY OTHER CATEGORY IN DESCRIPTION
       if (type === 'EXPENSE' && destSeg) {
-        const autoTxId = 'tx_auto_' + Date.now();
+        const autoTxId = 'tx_auto_' + (now + 1);
         txObj.linkedTransferId = autoTxId;
 
         const autoTx = {
@@ -2396,7 +2509,9 @@
           date: date,
           monthKey: getCurrentMonthKey(new Date(date)),
           note: `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`,
-          linkedTransferId: newTxId
+          linkedTransferId: newTxId,
+          createdAt: now + 1,
+          updatedAt: now + 1
         };
         state.transactions.push(autoTx);
         showToast(`Expense recorded & ₹${amount} automatically credited to ${destSeg.name}!`, 'success');
@@ -2429,13 +2544,16 @@
     if (id) {
       const seg = state.segregations.find(s => s.id === id);
       if (seg) {
+        const now = Date.now();
         seg.name = name;
         seg.createdDate = enteredDate;
+        seg.updatedAt = now;
 
         // Keep segregationName updated on existing transactions
         state.transactions.forEach(t => {
           if (t.segregationId === id) {
             t.segregationName = name;
+            t.updatedAt = now;
           }
         });
 
@@ -2448,62 +2566,77 @@
         if (initTx) {
           initTx.date = enteredDate;
           initTx.monthKey = getCurrentMonthKey(new Date(enteredDate));
+          initTx.updatedAt = now;
         }
 
         // If amount was changed, adjust so that the new remaining balance equals enteredAmount
         if (Math.abs(diff) > 0.001) {
           if (initTx && Number(initTx.amount) + diff >= 0) {
             initTx.amount = Number(initTx.amount) + diff;
+            initTx.updatedAt = now;
             seg.allocatedFund = Number(initTx.amount);
+            seg.updatedAt = now;
           } else if (initTx) {
             const remainderDiff = diff + Number(initTx.amount);
             initTx.amount = 0;
+            initTx.updatedAt = now;
             seg.allocatedFund = 0;
+            seg.updatedAt = now;
             state.transactions.push({
-              id: 'tx_adj_' + Date.now(),
+              id: 'tx_adj_' + now,
               segregationId: id,
               segregationName: name,
               type: remainderDiff > 0 ? 'INCOME' : 'EXPENSE',
               amount: Math.abs(remainderDiff),
               date: enteredDate,
               monthKey: getCurrentMonthKey(new Date(enteredDate)),
-              note: 'Balance Adjustment'
+              note: 'Balance Adjustment',
+              createdAt: now,
+              updatedAt: now
             });
           } else {
             seg.allocatedFund = Math.max(0, Number(seg.allocatedFund || 0) + diff);
+            seg.updatedAt = now;
           }
         }
         saveTransactionsToStorage();
       }
     } else {
-      const newSegId = 'seg_' + Date.now();
+      const now = Date.now();
+      const newSegId = 'seg_' + now;
       const newSeg = {
         id: newSegId,
         name,
         allocatedFund: enteredAmount,
-        createdDate: enteredDate
+        createdDate: enteredDate,
+        createdAt: now,
+        updatedAt: now
       };
       state.segregations.push(newSeg);
 
       // Record transaction in Transaction History for new category creation
       state.transactions.push({
-        id: 'tx_create_' + Date.now(),
+        id: 'tx_create_' + now,
         segregationId: newSegId,
         segregationName: name,
         type: 'INCOME',
         amount: enteredAmount,
         date: enteredDate,
         monthKey: getCurrentMonthKey(new Date(enteredDate)),
-        note: 'New Category Created'
+        note: 'New Category Created',
+        createdAt: now,
+        updatedAt: now
       });
       saveTransactionsToStorage();
 
       if (name.toLowerCase().includes('savings') && enteredAmount > 0) {
         state.savingsVault.push({
-          id: 'sav_' + Date.now(),
+          id: 'sav_' + now,
           date: enteredDate,
           particulars: `${name} Initial Allocation`,
-          amount: enteredAmount
+          amount: enteredAmount,
+          createdAt: now,
+          updatedAt: now
         });
         saveSavingsVaultToStorage();
       }
@@ -2522,8 +2655,14 @@
     if (!confirm('Delete this entry?')) return;
     const tx = state.transactions.find(t => t.id === txId);
     const linkedId = tx ? tx.linkedTransferId : null;
+    markIdAsDeleted(txId);
+    if (linkedId) markIdAsDeleted(linkedId);
+    markIdAsDeleted(`tx_sav_${txId}`);
+    markIdAsDeleted(`tx_${txId}`);
     state.transactions = state.transactions.filter(t => t.id !== txId && (!linkedId || t.id !== linkedId));
+    state.savingsVault = state.savingsVault.filter(s => s.id !== txId && `tx_sav_${s.id}` !== txId && `tx_${s.id}` !== txId);
     saveTransactionsToStorage();
+    saveSavingsVaultToStorage();
     renderAll();
     showToast('Entry deleted', 'success');
   }
@@ -2533,10 +2672,13 @@
     const segName = segToDelete ? segToDelete.name : 'Category';
     if (!confirm(`Delete category "${segName}"? Its transaction history will be preserved in the overall statement.`)) return;
 
+    markIdAsDeleted(segId);
+
     // Preserve category name on all related transactions before removing the category
     state.transactions.forEach(t => {
       if (t.segregationId === segId && !t.segregationName) {
         t.segregationName = segName;
+        t.updatedAt = Date.now();
       }
     });
 
@@ -2708,72 +2850,203 @@
 
   let isFirebaseInitialized = false;
 
+  function getItemTimestamp(item) {
+    if (!item) return 0;
+    if (item.updatedAt && !isNaN(item.updatedAt)) return Number(item.updatedAt);
+    if (item.createdAt && !isNaN(item.createdAt)) return Number(item.createdAt);
+    if (typeof item.id === 'string') {
+      const match = item.id.match(/\d{10,}/);
+      if (match) return parseInt(match[0], 10);
+    }
+    return 0;
+  }
+
   function mergeCloudAndLocalState(cloudData) {
-    let stateChanged = false;
+    if (!cloudData || typeof cloudData !== 'object') return;
+    let stateChangedLocally = false;
+    let cloudNeedsUpdate = false;
 
     // 1. Merge Segregations
     if (cloudData.segregations && Array.isArray(cloudData.segregations)) {
       const segMap = new Map();
       state.segregations.forEach(s => segMap.set(s.id, s));
-      cloudData.segregations.forEach(s => {
-        if (!segMap.has(s.id)) {
-          segMap.set(s.id, s);
-          stateChanged = true;
+
+      cloudData.segregations.forEach(cloudSeg => {
+        if (state.deletedIds && state.deletedIds.has(cloudSeg.id)) {
+          cloudNeedsUpdate = true;
+          return;
+        }
+
+        if (!segMap.has(cloudSeg.id)) {
+          segMap.set(cloudSeg.id, cloudSeg);
+          stateChangedLocally = true;
         } else {
-          const existing = segMap.get(s.id);
-          segMap.set(s.id, { ...existing, ...s });
+          const localSeg = segMap.get(cloudSeg.id);
+          const localTime = getItemTimestamp(localSeg);
+          const cloudTime = getItemTimestamp(cloudSeg);
+
+          if (cloudTime > localTime) {
+            segMap.set(cloudSeg.id, { ...localSeg, ...cloudSeg });
+            stateChangedLocally = true;
+          } else if (localTime > cloudTime) {
+            segMap.set(cloudSeg.id, { ...cloudSeg, ...localSeg });
+            cloudNeedsUpdate = true;
+          } else {
+            segMap.set(cloudSeg.id, { ...cloudSeg, ...localSeg });
+          }
         }
       });
+
+      state.segregations.forEach(localSeg => {
+        if (!cloudData.segregations.some(c => c.id === localSeg.id)) {
+          cloudNeedsUpdate = true;
+        }
+      });
+
       state.segregations = Array.from(segMap.values());
       localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
     } else if (state.segregations.length > 0) {
-      stateChanged = true;
+      cloudNeedsUpdate = true;
     }
 
-    // 2. Merge Transactions
+    // 2. Merge Transactions (Safely preserve local edits)
     if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
       const txMap = new Map();
       state.transactions.forEach(t => txMap.set(t.id, t));
-      cloudData.transactions.forEach(t => {
-        if (!txMap.has(t.id)) {
-          txMap.set(t.id, t);
-          stateChanged = true;
+
+      cloudData.transactions.forEach(cloudTx => {
+        if (state.deletedIds && state.deletedIds.has(cloudTx.id)) {
+          cloudNeedsUpdate = true;
+          return;
+        }
+
+        if (!txMap.has(cloudTx.id)) {
+          txMap.set(cloudTx.id, cloudTx);
+          stateChangedLocally = true;
         } else {
-          const existing = txMap.get(t.id);
-          txMap.set(t.id, { ...existing, ...t });
+          const localTx = txMap.get(cloudTx.id);
+          const localTime = getItemTimestamp(localTx);
+          const cloudTime = getItemTimestamp(cloudTx);
+
+          if (cloudTime > localTime) {
+            // Cloud has a newer version from another device/session
+            txMap.set(cloudTx.id, { ...localTx, ...cloudTx });
+            stateChangedLocally = true;
+          } else if (localTime > cloudTime) {
+            // Local version is newer (user made recent changes!) - KEEP LOCAL!
+            txMap.set(cloudTx.id, { ...cloudTx, ...localTx });
+            cloudNeedsUpdate = true;
+          } else {
+            // Equal or no timestamps: keep local version to ensure edits are never lost
+            txMap.set(cloudTx.id, { ...cloudTx, ...localTx });
+          }
         }
       });
+
+      state.transactions.forEach(localTx => {
+        if (!cloudData.transactions.some(c => c.id === localTx.id)) {
+          cloudNeedsUpdate = true;
+        }
+      });
+
       state.transactions = Array.from(txMap.values());
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
     } else if (state.transactions.length > 0) {
-      stateChanged = true;
+      cloudNeedsUpdate = true;
     }
 
     // 3. Merge Personal Notes
     if (cloudData.personalNotes && Array.isArray(cloudData.personalNotes)) {
       const noteMap = new Map();
       state.personalNotes.forEach(n => noteMap.set(n.id, n));
-      cloudData.personalNotes.forEach(n => {
-        if (!noteMap.has(n.id)) {
-          noteMap.set(n.id, n);
-          stateChanged = true;
+
+      cloudData.personalNotes.forEach(cloudNote => {
+        if (state.deletedIds && state.deletedIds.has(cloudNote.id)) {
+          cloudNeedsUpdate = true;
+          return;
+        }
+
+        if (!noteMap.has(cloudNote.id)) {
+          noteMap.set(cloudNote.id, cloudNote);
+          stateChangedLocally = true;
         } else {
-          const existing = noteMap.get(n.id);
-          noteMap.set(n.id, { ...existing, ...n });
+          const localNote = noteMap.get(cloudNote.id);
+          const localTime = getItemTimestamp(localNote);
+          const cloudTime = getItemTimestamp(cloudNote);
+
+          if (cloudTime > localTime) {
+            noteMap.set(cloudNote.id, { ...localNote, ...cloudNote });
+            stateChangedLocally = true;
+          } else if (localTime > cloudTime) {
+            noteMap.set(cloudNote.id, { ...cloudNote, ...localNote });
+            cloudNeedsUpdate = true;
+          } else {
+            noteMap.set(cloudNote.id, { ...cloudNote, ...localNote });
+          }
         }
       });
+
+      state.personalNotes.forEach(localNote => {
+        if (!cloudData.personalNotes.some(c => c.id === localNote.id)) {
+          cloudNeedsUpdate = true;
+        }
+      });
+
       state.personalNotes = Array.from(noteMap.values());
       localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
     } else if (state.personalNotes.length > 0) {
-      stateChanged = true;
+      cloudNeedsUpdate = true;
+    }
+
+    // 4. Merge Savings Vault
+    if (cloudData.savingsVault && Array.isArray(cloudData.savingsVault)) {
+      const savMap = new Map();
+      state.savingsVault.forEach(s => savMap.set(s.id, s));
+
+      cloudData.savingsVault.forEach(cloudSav => {
+        if (state.deletedIds && state.deletedIds.has(cloudSav.id)) {
+          cloudNeedsUpdate = true;
+          return;
+        }
+
+        if (!savMap.has(cloudSav.id)) {
+          savMap.set(cloudSav.id, cloudSav);
+          stateChangedLocally = true;
+        } else {
+          const localSav = savMap.get(cloudSav.id);
+          const localTime = getItemTimestamp(localSav);
+          const cloudTime = getItemTimestamp(cloudSav);
+
+          if (cloudTime > localTime) {
+            savMap.set(cloudSav.id, { ...localSav, ...cloudSav });
+            stateChangedLocally = true;
+          } else if (localTime > cloudTime) {
+            savMap.set(cloudSav.id, { ...cloudSav, ...localSav });
+            cloudNeedsUpdate = true;
+          } else {
+            savMap.set(cloudSav.id, { ...cloudSav, ...localSav });
+          }
+        }
+      });
+
+      state.savingsVault.forEach(localSav => {
+        if (!cloudData.savingsVault.some(c => c.id === localSav.id)) {
+          cloudNeedsUpdate = true;
+        }
+      });
+
+      state.savingsVault = Array.from(savMap.values());
+      localStorage.setItem(STORAGE_KEYS.SAVINGS_VAULT, JSON.stringify(state.savingsVault));
+    } else if (state.savingsVault.length > 0) {
+      cloudNeedsUpdate = true;
     }
 
     purgeEmptyDefaultSavings();
     renderAll();
 
-    // Push unified merged state back to cloud if local state had items cloud didn't have yet
-    if (stateChanged) {
-      syncToFirebase();
+    // If local state had newer edits or un-synced data, push merged state up to Firestore
+    if (cloudNeedsUpdate || state.hasPendingSync) {
+      syncToFirebase(true);
     }
   }
 
@@ -2796,38 +3069,32 @@
       // Realtime Sync Document (unified doc key 'akil_main_ledger' so computer & phone sync instantly)
       const syncDocId = 'akil_main_ledger';
       const userDocRef = doc(state.db, 'users', syncDocId);
+
       onSnapshot(userDocRef, (docSnap) => {
+        // Skip local optimistic echo snapshots while our own write is in flight
+        if (docSnap.metadata && docSnap.metadata.hasPendingWrites) {
+          return;
+        }
+
         if (docSnap.exists()) {
           const cloudData = docSnap.data();
-          if (!state.isInitialCloudSyncDone) {
-            mergeCloudAndLocalState(cloudData);
-            state.isInitialCloudSyncDone = true;
-          } else {
-            if (cloudData.segregations && Array.isArray(cloudData.segregations)) {
-              state.segregations = cloudData.segregations;
-              localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
-            }
-            if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
-              state.transactions = cloudData.transactions;
-              localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
-            }
-            if (cloudData.personalNotes && Array.isArray(cloudData.personalNotes)) {
-              state.personalNotes = cloudData.personalNotes;
-              localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
-            }
-            purgeEmptyDefaultSavings();
-            renderAll();
-          }
+          mergeCloudAndLocalState(cloudData);
+          state.isInitialCloudSyncDone = true;
         } else {
           // Document does not exist in Cloud Firestore yet: push current local state to cloud!
           state.isInitialCloudSyncDone = true;
-          syncToFirebase();
+          syncToFirebase(true);
         }
       }, (err) => {
         console.warn('Cloud Sync listener warning:', err);
         state.isFirebaseOnline = false;
         if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
       });
+
+      // If user made edits before Firebase finished initializing, push them now!
+      if (state.hasPendingSync) {
+        syncToFirebase(true);
+      }
     } catch (err) {
       console.error('Firebase Initialization Error:', err);
       state.isFirebaseOnline = false;
@@ -2848,33 +3115,58 @@
     }
   }, 500);
 
-  function syncToFirebase() {
-    if (!state.isFirebaseOnline || !state.db) return;
+  let syncDebounceTimer = null;
+
+  function syncToFirebase(immediate = false) {
+    if (syncDebounceTimer) {
+      clearTimeout(syncDebounceTimer);
+      syncDebounceTimer = null;
+    }
+    if (immediate) {
+      performSyncToFirebase();
+    } else {
+      syncDebounceTimer = setTimeout(performSyncToFirebase, 300);
+    }
+  }
+
+  function performSyncToFirebase() {
+    if (!state.db || !window.FirebaseSDK) {
+      state.hasPendingSync = true;
+      return;
+    }
+
     try {
       const { doc, setDoc } = window.FirebaseSDK;
       const syncDocId = 'akil_main_ledger';
       const userDocRef = doc(state.db, 'users', syncDocId);
-      setDoc(userDocRef, {
+
+      const payload = {
         segregations: state.segregations,
         transactions: state.transactions,
         personalNotes: state.personalNotes,
-        lastUpdated: new Date().toISOString()
-      }, { merge: true })
-      .then(() => {
-        state.isFirebaseOnline = true;
-        if (DOM.cloudSyncBadge) {
-          DOM.cloudSyncBadge.className = 'status-dot online';
-          DOM.cloudSyncBadge.title = 'Live synced to Cloud Firestore at ' + new Date().toLocaleTimeString();
-        }
-      })
-      .catch((err) => {
-        console.error('Firebase Sync Write Error:', err);
-        state.isFirebaseOnline = false;
-        if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
-        showToast('Cloud Sync write error: ' + (err.message || 'Permission denied'), 'warning');
-      });
+        savingsVault: state.savingsVault,
+        lastUpdated: new Date().toISOString(),
+        lastUpdatedTimestamp: Date.now()
+      };
+
+      setDoc(userDocRef, payload, { merge: true })
+        .then(() => {
+          state.isFirebaseOnline = true;
+          state.hasPendingSync = false;
+          if (DOM.cloudSyncBadge) {
+            DOM.cloudSyncBadge.className = 'status-dot online';
+            DOM.cloudSyncBadge.title = 'Live synced to Cloud Firestore at ' + new Date().toLocaleTimeString();
+          }
+        })
+        .catch((err) => {
+          console.error('Firebase Sync Write Error:', err);
+          state.isFirebaseOnline = false;
+          state.hasPendingSync = true;
+          if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
+        });
     } catch (err) {
       console.error('Firebase Sync Error:', err);
+      state.hasPendingSync = true;
     }
   }
 
