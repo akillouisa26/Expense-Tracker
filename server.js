@@ -1,9 +1,17 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const dns = require('dns');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 require('dotenv').config();
+
+// Use reliable public DNS (Google & Cloudflare) to prevent Windows / ISP querySrv ECONNREFUSED
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch (e) {
+  console.warn('[DNS Notice] Could not set custom DNS servers:', e.message);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
