@@ -106,6 +106,18 @@ function saveUriToEnv(newUri) {
   }
 }
 
+// Auto-connect middleware for serverless execution (e.g. Vercel)
+app.use(async (req, res, next) => {
+  if (!isConnected && process.env.MONGODB_URI) {
+    try {
+      await connectToMongo(process.env.MONGODB_URI);
+    } catch (e) {
+      console.warn('[MongoDB Serverless Connect Note]:', e.message);
+    }
+  }
+  next();
+});
+
 // ============================================================================
 // API ROUTES
 // ============================================================================
@@ -433,17 +445,21 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Start Server
-app.listen(PORT, async () => {
-  console.log(`=======================================================`);
-  console.log(` Expense Tracker Server running on http://localhost:${PORT}`);
-  console.log(`=======================================================`);
+// Start Server (when run directly in Node.js)
+if (process.env.VERCEL !== '1' && require.main === module) {
+  app.listen(PORT, async () => {
+    console.log(`=======================================================`);
+    console.log(` Expense Tracker Server running on http://localhost:${PORT}`);
+    console.log(`=======================================================`);
 
-  // Attempt initial MongoDB connection if URI is present
-  if (process.env.MONGODB_URI) {
-    await connectToMongo(process.env.MONGODB_URI);
-  } else {
-    console.log('[Notice] No MONGODB_URI found in .env yet.');
-    console.log('[Notice] You can configure your MongoDB Atlas URI anytime via the web app UI or .env file.');
-  }
-});
+    // Attempt initial MongoDB connection if URI is present
+    if (process.env.MONGODB_URI) {
+      await connectToMongo(process.env.MONGODB_URI);
+    } else {
+      console.log('[Notice] No MONGODB_URI found in .env yet.');
+      console.log('[Notice] You can configure your MongoDB Atlas URI anytime via the web app UI or .env file.');
+    }
+  });
+}
+
+module.exports = app;
