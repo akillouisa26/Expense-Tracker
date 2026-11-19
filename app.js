@@ -37,7 +37,7 @@
     isMongoOnline: false,
     isMongoMigrated: false,
     mongoDbName: 'expense_tracker',
-    serverApiBase: (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin.startsWith('http')) 
+    serverApiBase: (typeof window !== 'undefined' && window.location && window.location.port === '3000') 
       ? window.location.origin 
       : 'http://localhost:3000',
     firebaseConfig: null,
@@ -295,6 +295,7 @@
     DOM.btnConnectMongo = document.getElementById('btnConnectMongo');
     DOM.btnMigrateToMongo = document.getElementById('btnMigrateToMongo');
     DOM.btnDownloadJsonBackup = document.getElementById('btnDownloadJsonBackup');
+    DOM.jsonBackupFileInput = document.getElementById('jsonBackupFileInput');
 
     DOM.toastContainer = document.getElementById('toastContainer');
   }
@@ -728,6 +729,9 @@
     }
     if (DOM.btnDownloadJsonBackup) {
       DOM.btnDownloadJsonBackup.addEventListener('click', () => handleDownloadJsonBackup(false));
+    }
+    if (DOM.jsonBackupFileInput) {
+      DOM.jsonBackupFileInput.addEventListener('change', handleRestoreJsonBackup);
     }
   }
 
@@ -3577,6 +3581,61 @@
       console.error('Backup download error:', err);
       if (!silent) showToast('Failed to download backup', 'danger');
     }
+  }
+
+  function handleRestoreJsonBackup(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        if (!data || typeof data !== 'object') {
+          showToast('Invalid backup file format.', 'danger');
+          return;
+        }
+
+        if (Array.isArray(data.segregations)) {
+          state.segregations = data.segregations;
+          saveSegregationsToStorage();
+        }
+        if (Array.isArray(data.transactions)) {
+          state.transactions = data.transactions;
+          saveTransactionsToStorage();
+        }
+        if (Array.isArray(data.savingsVault)) {
+          state.savingsVault = data.savingsVault;
+          saveSavingsVaultToStorage();
+        }
+        if (Array.isArray(data.personalNotes)) {
+          state.personalNotes = data.personalNotes;
+          saveNotesToStorage();
+        }
+        if (data.securitySettings && typeof data.securitySettings === 'object') {
+          state.securitySettings = data.securitySettings;
+          localStorage.setItem(STORAGE_KEYS.SECURITY_SETTINGS, JSON.stringify(state.securitySettings));
+        }
+        if (Array.isArray(data.deletedIds)) {
+          state.deletedIds = new Set(data.deletedIds);
+          localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(data.deletedIds));
+        }
+
+        renderAll();
+        showToast(`Backup restored! Loaded ${state.transactions.length} transactions and ${state.segregations.length} categories.`, 'success');
+
+        // Automatically sync to MongoDB if online
+        if (state.isMongoOnline) {
+          await handleMigrateToMongo(false);
+        }
+      } catch (err) {
+        console.error('Failed to parse backup JSON:', err);
+        showToast('Error reading backup file: ' + err.message, 'danger');
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
   }
 
   async function fetchLedgerFromMongoDB() {
