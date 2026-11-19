@@ -14,7 +14,9 @@
     FIREBASE_CONFIG: 'akil_tracker_firebase_config_v5',
     SECURITY_SETTINGS: 'akil_tracker_security_settings_v5',
     DELETED_IDS: 'akil_tracker_deleted_ids_v7',
-    LAST_LOCAL_UPDATE: 'akil_tracker_last_local_update_v7'
+    LAST_LOCAL_UPDATE: 'akil_tracker_last_local_update_v7',
+    MONGO_MIGRATED: 'akil_tracker_mongo_migrated_v1',
+    SERVER_API_URL: 'akil_tracker_server_api_url_v1'
   };
 
   // App State
@@ -32,6 +34,12 @@
     deletedIds: new Set(),
     lastLocalUpdate: 0,
     hasPendingSync: false,
+    isMongoOnline: false,
+    isMongoMigrated: false,
+    mongoDbName: 'expense_tracker',
+    serverApiBase: (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin.startsWith('http')) 
+      ? window.location.origin 
+      : 'http://localhost:3000',
     firebaseConfig: null,
     db: null,
     auth: null,
@@ -61,6 +69,8 @@
     loadStateFromStorage();
     setupEventListeners();
     initFirebaseIfAvailable();
+    checkMongoStatus();
+    setInterval(checkMongoStatus, 15000);
     renderAll();
     checkAppLockStatus();
   });
@@ -272,6 +282,20 @@
     DOM.modalAlertTitle = document.getElementById('modalAlertTitle');
     DOM.modalAlertMessage = document.getElementById('modalAlertMessage');
     
+    // MongoDB Atlas Elements
+    DOM.btnMongoStatusHeader = document.getElementById('btnMongoStatusHeader');
+    DOM.mongoHeaderDot = document.getElementById('mongoHeaderDot');
+    DOM.mongoHeaderText = document.getElementById('mongoHeaderText');
+    DOM.mongoConnectionBadge = document.getElementById('mongoConnectionBadge');
+    DOM.mongoStatusDot = document.getElementById('mongoStatusDot');
+    DOM.mongoStatusText = document.getElementById('mongoStatusText');
+    DOM.mongoConfigForm = document.getElementById('mongoConfigForm');
+    DOM.mongoUriInput = document.getElementById('mongoUriInput');
+    DOM.mongoStatusAlert = document.getElementById('mongoStatusAlert');
+    DOM.btnConnectMongo = document.getElementById('btnConnectMongo');
+    DOM.btnMigrateToMongo = document.getElementById('btnMigrateToMongo');
+    DOM.btnDownloadJsonBackup = document.getElementById('btnDownloadJsonBackup');
+
     DOM.toastContainer = document.getElementById('toastContainer');
   }
 
@@ -382,6 +406,8 @@
         isProtectionEnabled: true
       };
     }
+
+    state.isMongoMigrated = localStorage.getItem(STORAGE_KEYS.MONGO_MIGRATED) === 'true';
   }
 
   function purgeEmptyDefaultSavings() {
@@ -420,24 +446,28 @@
     recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
     syncToFirebase();
+    syncToMongoDB();
   }
 
   function saveTransactionsToStorage() {
     recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
     syncToFirebase();
+    syncToMongoDB();
   }
 
   function saveSavingsVaultToStorage() {
     recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.SAVINGS_VAULT, JSON.stringify(state.savingsVault));
     syncToFirebase();
+    syncToMongoDB();
   }
 
   function saveNotesToStorage() {
     recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
     syncToFirebase();
+    syncToMongoDB();
   }
 
   function setupEventListeners() {
@@ -679,6 +709,26 @@
         }
       });
     });
+
+    // MongoDB Atlas Listeners
+    if (DOM.btnMongoStatusHeader) {
+      DOM.btnMongoStatusHeader.addEventListener('click', () => {
+        switchTab('settings');
+        const card = document.getElementById('cardMongoDatabase');
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth' });
+        }
+      });
+    }
+    if (DOM.mongoConfigForm) {
+      DOM.mongoConfigForm.addEventListener('submit', handleConnectMongo);
+    }
+    if (DOM.btnMigrateToMongo) {
+      DOM.btnMigrateToMongo.addEventListener('click', () => handleMigrateToMongo(true));
+    }
+    if (DOM.btnDownloadJsonBackup) {
+      DOM.btnDownloadJsonBackup.addEventListener('click', () => handleDownloadJsonBackup(false));
+    }
   }
 
   function switchTab(tabName) {
@@ -3287,7 +3337,269 @@
     localStorage.setItem(STORAGE_KEYS.SECURITY_SETTINGS, JSON.stringify(state.securitySettings));
     renderAll();
     syncToFirebase();
-    showToast('Security settings & profile updated successfully!', 'success');
+    showToast('Security settings updated successfully!', 'success');
+  }
+
+  // ==========================================================================
+  // MONGODB ATLAS SYNCHRONIZATION & ZERO DATA LOSS MIGRATION
+  // ==========================================================================
+
+  let mongoSyncDebounceTimer = null;
+
+  function syncToMongoDB(immediate = false) {
+    if (mongoSyncDebounceTimer) {
+      clearTimeout(mongoSyncDebounceTimer);
+      mongoSyncDebounceTimer = null;
+    }
+    if (immediate) {
+      performSyncToMongoDB();
+    } else {
+      mongoSyncDebounceTimer = setTimeout(performSyncToMongoDB, 350);
+    }
+  }
+
+  async function performSyncToMongoDB() {
+    if (!state.isMongoOnline) return;
+
+    try {
+      const payload = {
+        segregations: state.segregations,
+        transactions: state.transactions,
+        personalNotes: state.personalNotes,
+        savingsVault: state.savingsVault,
+        securitySettings: state.securitySettings,
+        deletedIds: Array.from(state.deletedIds || []),
+        lastUpdatedTimestamp: state.lastLocalUpdate || Date.now()
+      };
+
+      const res = await fetch(`${state.serverApiBase}/api/ledger/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        updateMongoStatusUI(true, state.mongoDbName);
+      }
+    } catch (err) {
+      console.warn('[MongoDB Sync] Network note:', err.message);
+    }
+  }
+
+  async function checkMongoStatus() {
+    try {
+      const res = await fetch(`${state.serverApiBase}/api/status`);
+      if (res.ok) {
+        const data = await res.json();
+        state.isMongoOnline = data.connected === true;
+        state.mongoDbName = data.dbName || 'expense_tracker';
+        updateMongoStatusUI(data.connected, data.dbName, data.maskedUri, data.error);
+
+        if (data.connected) {
+          // If connected, sync ledger data from MongoDB
+          await fetchLedgerFromMongoDB();
+        }
+      } else {
+        updateMongoStatusUI(false, null, '', 'Backend server responded with error');
+      }
+    } catch (err) {
+      // Backend server is not running on localhost:3000 yet or offline
+      updateMongoStatusUI(false, null, '', 'Backend server not running');
+    }
+  }
+
+  function updateMongoStatusUI(isConnected, dbName, maskedUri = '', error = '') {
+    state.isMongoOnline = isConnected;
+
+    if (DOM.mongoHeaderDot) {
+      DOM.mongoHeaderDot.className = `status-dot ${isConnected ? 'online' : 'offline'}`;
+    }
+    if (DOM.mongoHeaderText) {
+      DOM.mongoHeaderText.textContent = isConnected ? 'MongoDB (Online)' : 'MongoDB';
+    }
+
+    if (DOM.mongoStatusDot) {
+      DOM.mongoStatusDot.className = `status-dot ${isConnected ? 'online' : 'offline'}`;
+    }
+    if (DOM.mongoStatusText) {
+      DOM.mongoStatusText.textContent = isConnected ? `Connected (${dbName || 'expense_tracker'})` : 'Disconnected';
+    }
+    if (DOM.mongoConnectionBadge) {
+      DOM.mongoConnectionBadge.className = `badge-status-pill ${isConnected ? 'online' : 'offline'}`;
+    }
+
+    if (DOM.mongoUriInput && maskedUri && !DOM.mongoUriInput.value) {
+      DOM.mongoUriInput.placeholder = maskedUri;
+    }
+
+    if (DOM.mongoStatusAlert) {
+      if (isConnected) {
+        DOM.mongoStatusAlert.className = 'alert-box success mb-3';
+        DOM.mongoStatusAlert.innerHTML = `<i class="fa-solid fa-circle-check"></i> Connected to MongoDB Atlas: <strong>${escapeHTML(dbName || 'expense_tracker')}</strong>. Real-time synchronization active.`;
+        DOM.mongoStatusAlert.classList.remove('hidden');
+      } else if (error && error !== 'No MongoDB URI configured') {
+        DOM.mongoStatusAlert.className = 'alert-box danger mb-3';
+        DOM.mongoStatusAlert.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${escapeHTML(error)}`;
+        DOM.mongoStatusAlert.classList.remove('hidden');
+      } else {
+        DOM.mongoStatusAlert.classList.add('hidden');
+      }
+    }
+  }
+
+  async function handleConnectMongo(e) {
+    if (e) e.preventDefault();
+    const uri = DOM.mongoUriInput ? DOM.mongoUriInput.value.trim() : '';
+    if (!uri) {
+      showToast('Please enter your MongoDB Atlas connection string (URI)', 'warning');
+      return;
+    }
+
+    if (DOM.btnConnectMongo) {
+      DOM.btnConnectMongo.disabled = true;
+      DOM.btnConnectMongo.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
+    }
+
+    try {
+      const res = await fetch(`${state.serverApiBase}/api/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast('Successfully connected to MongoDB Atlas!', 'success');
+        await checkMongoStatus();
+
+        // Check if we should automatically migrate existing data
+        if (!state.isMongoMigrated && (state.transactions.length > 0 || state.segregations.length > 0)) {
+          await handleMigrateToMongo(false);
+        }
+      } else {
+        showToast(`MongoDB Connection failed: ${data.message}`, 'danger');
+        updateMongoStatusUI(false, null, '', data.message);
+      }
+    } catch (err) {
+      showToast('Cannot connect to backend server. Make sure "npm start" is running.', 'danger');
+      updateMongoStatusUI(false, null, '', 'Backend server unreachable');
+    } finally {
+      if (DOM.btnConnectMongo) {
+        DOM.btnConnectMongo.disabled = false;
+        DOM.btnConnectMongo.innerHTML = '<i class="fa-solid fa-plug"></i> Connect to MongoDB';
+      }
+    }
+  }
+
+  // ZERO DATA LOSS MIGRATION
+  async function handleMigrateToMongo(isUserPrompted = true) {
+    if (isUserPrompted) {
+      const totalItems = state.transactions.length + state.segregations.length + state.savingsVault.length + state.personalNotes.length;
+      if (!confirm(`Migrate all existing ${totalItems} records (${state.transactions.length} transactions, ${state.segregations.length} categories, ${state.savingsVault.length} savings entries, ${state.personalNotes.length} notes) to MongoDB Atlas? Existing data will be preserved with 100% fidelity.`)) {
+        return;
+      }
+    }
+
+    if (DOM.btnMigrateToMongo) {
+      DOM.btnMigrateToMongo.disabled = true;
+      DOM.btnMigrateToMongo.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Migrating Data...';
+    }
+
+    try {
+      // 1. Download emergency safety backup before migration
+      handleDownloadJsonBackup(true);
+
+      const payload = {
+        segregations: state.segregations,
+        transactions: state.transactions,
+        savingsVault: state.savingsVault,
+        personalNotes: state.personalNotes,
+        securitySettings: state.securitySettings,
+        deletedIds: Array.from(state.deletedIds || [])
+      };
+
+      const res = await fetch(`${state.serverApiBase}/api/migrate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        state.isMongoMigrated = true;
+        localStorage.setItem(STORAGE_KEYS.MONGO_MIGRATED, 'true');
+        const c = data.counts || {};
+        showToast(`Migration complete! ${c.transactions || 0} transactions & ${c.categories || 0} categories safely stored in MongoDB Atlas!`, 'success');
+        updateMongoStatusUI(true, state.mongoDbName);
+      } else {
+        showToast(`Migration error: ${data.message}`, 'danger');
+      }
+    } catch (err) {
+      showToast('Migration failed: backend server unreachable. Run "npm start" first.', 'danger');
+    } finally {
+      if (DOM.btnMigrateToMongo) {
+        DOM.btnMigrateToMongo.disabled = false;
+        DOM.btnMigrateToMongo.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Backup & Migrate All Data to MongoDB';
+      }
+    }
+  }
+
+  // ZERO DATA LOSS JSON BACKUP DOWNLOAD
+  function handleDownloadJsonBackup(silent = false) {
+    try {
+      const backupData = {
+        exportDate: new Date().toISOString(),
+        appName: "Akil's Expense Tracker",
+        version: "v7",
+        segregations: state.segregations,
+        transactions: state.transactions,
+        savingsVault: state.savingsVault,
+        personalNotes: state.personalNotes,
+        securitySettings: state.securitySettings,
+        deletedIds: Array.from(state.deletedIds || []),
+        lastLocalUpdate: state.lastLocalUpdate
+      };
+
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `expense_tracker_backup_${new Date().toISOString().split('T')[0]}_${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      if (!silent) {
+        showToast('Full JSON backup downloaded successfully!', 'success');
+      }
+    } catch (err) {
+      console.error('Backup download error:', err);
+      if (!silent) showToast('Failed to download backup', 'danger');
+    }
+  }
+
+  async function fetchLedgerFromMongoDB() {
+    if (!state.isMongoOnline) return;
+
+    try {
+      const res = await fetch(`${state.serverApiBase}/api/ledger`);
+      if (res.ok) {
+        const mongoData = await res.json();
+        if (mongoData.success) {
+          // Merge safely with Last-Write-Wins (LWW) engine
+          mergeCloudAndLocalState({
+            segregations: mongoData.segregations,
+            transactions: mongoData.transactions,
+            savingsVault: mongoData.savingsVault,
+            personalNotes: mongoData.personalNotes,
+            lastUpdated: mongoData.lastUpdated
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[MongoDB Fetch Ledger] Note:', err.message);
+    }
   }
 
   function showToast(message, type = 'info') {
