@@ -225,6 +225,10 @@
     DOM.editNoteTitleInput = document.getElementById('editNoteTitleInput');
     DOM.editNoteDateInput = document.getElementById('editNoteDateInput');
     DOM.editNoteAmountInput = document.getElementById('editNoteAmountInput');
+    DOM.personalNoteAlertToggle = document.getElementById('personalNoteAlertToggle');
+    DOM.personalNoteAlertHelp = document.getElementById('personalNoteAlertHelp');
+    DOM.editNoteAlertToggle = document.getElementById('editNoteAlertToggle');
+    DOM.editNoteAlertHelp = document.getElementById('editNoteAlertHelp');
     if (DOM.personalNoteDateInput) {
       DOM.personalNoteDateInput.value = new Date().toISOString().split('T')[0];
     }
@@ -576,6 +580,27 @@
     // Edit Personal Note Form Submit
     if (DOM.editNoteForm) {
       DOM.editNoteForm.addEventListener('submit', handleSaveEditedNote);
+    }
+
+    // Personal Note Alert Toggle Listeners
+    if (DOM.personalNoteAlertToggle) {
+      DOM.personalNoteAlertToggle.addEventListener('change', () => {
+        const isChecked = DOM.personalNoteAlertToggle.checked;
+        updatePersonalNoteAlertUI(isChecked);
+        if (isChecked && 'Notification' in window && Notification.permission === 'default') {
+          Notification.requestPermission().catch(() => {});
+        }
+      });
+    }
+
+    if (DOM.editNoteAlertToggle) {
+      DOM.editNoteAlertToggle.addEventListener('change', () => {
+        const isChecked = DOM.editNoteAlertToggle.checked;
+        updateEditNoteAlertUI(isChecked);
+        if (isChecked && 'Notification' in window && Notification.permission === 'default') {
+          Notification.requestPermission().catch(() => {});
+        }
+      });
     }
 
     // Monthly Expense Overview Controls
@@ -1108,7 +1133,47 @@
     });
   }
 
-  // RENDER MY NOTES TAB (TITLE, MONEY, DATE, & MARK AS COMPLETED)
+  function updatePersonalNoteAlertUI(isEnabled) {
+    const icon = document.getElementById('personalNoteAlertIcon');
+    if (icon) {
+      if (isEnabled) {
+        icon.className = 'fa-solid fa-bell';
+        icon.style.color = '#c59b27';
+      } else {
+        icon.className = 'fa-regular fa-bell-slash';
+        icon.style.color = '#9ca3af';
+      }
+    }
+    if (DOM.personalNoteAlertHelp) {
+      if (isEnabled) {
+        DOM.personalNoteAlertHelp.innerHTML = '<i class="fa-solid fa-circle-check" style="color: var(--credit-color);"></i> Alert is <strong>ON</strong> — you will receive notification when this note is due.';
+      } else {
+        DOM.personalNoteAlertHelp.innerHTML = '<i class="fa-solid fa-circle-xmark" style="color: #6b7280;"></i> Alert is <strong>OFF</strong> — no notifications or reminders will be sent.';
+      }
+    }
+  }
+
+  function updateEditNoteAlertUI(isEnabled) {
+    const icon = document.getElementById('editNoteAlertIcon');
+    if (icon) {
+      if (isEnabled) {
+        icon.className = 'fa-solid fa-bell';
+        icon.style.color = '#c59b27';
+      } else {
+        icon.className = 'fa-regular fa-bell-slash';
+        icon.style.color = '#9ca3af';
+      }
+    }
+    if (DOM.editNoteAlertHelp) {
+      if (isEnabled) {
+        DOM.editNoteAlertHelp.innerHTML = '<i class="fa-solid fa-circle-check" style="color: var(--credit-color);"></i> Alert is <strong>ON</strong> — you will receive notification when this note is due.';
+      } else {
+        DOM.editNoteAlertHelp.innerHTML = '<i class="fa-solid fa-circle-xmark" style="color: #6b7280;"></i> Alert is <strong>OFF</strong> — no notifications or reminders will be sent.';
+      }
+    }
+  }
+
+  // RENDER MY NOTES TAB (TITLE, MONEY, DATE, ALERT STATUS & MARK AS COMPLETED)
   function renderPersonalNotesTab() {
     DOM.savedNotesContainer.innerHTML = '';
 
@@ -1138,6 +1203,11 @@
         }
       }
 
+      const hasAlert = (note.enableAlert === true || (note.enableAlert !== false && note.hasAlert !== false));
+      const alertBadgeHtml = hasAlert
+        ? `<span class="badge-alert-on" title="Alert notification enabled"><i class="fa-solid fa-bell"></i> Alert ON</span>`
+        : `<span class="badge-alert-off" title="No alert notification"><i class="fa-regular fa-bell-slash"></i> No Alert</span>`;
+
       card.innerHTML = `
         <div class="note-top-actions">
           <button class="btn-edit-note" data-note-id="${note.id}" title="Edit Note">
@@ -1163,8 +1233,9 @@
             <i class="fa-solid fa-check"></i> Mark as Completed
           </button>
         `}
-        <div style="margin-top: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+        <div style="margin-top: 0.65rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem;">
           ${dateBadgeHtml}
+          ${alertBadgeHtml}
         </div>
       `;
 
@@ -1208,6 +1279,12 @@
     if (DOM.editNoteDateInput) DOM.editNoteDateInput.value = note.date || new Date().toISOString().split('T')[0];
     if (DOM.editNoteAmountInput) DOM.editNoteAmountInput.value = note.amount !== undefined ? note.amount : '';
 
+    const isAlertEnabled = (note.enableAlert === true || (note.enableAlert !== false && note.hasAlert !== false));
+    if (DOM.editNoteAlertToggle) {
+      DOM.editNoteAlertToggle.checked = isAlertEnabled;
+      updateEditNoteAlertUI(isAlertEnabled);
+    }
+
     DOM.modalEditNote.showModal();
   }
 
@@ -1220,6 +1297,7 @@
     const title = DOM.editNoteTitleInput ? DOM.editNoteTitleInput.value.trim() : '';
     const date = DOM.editNoteDateInput ? DOM.editNoteDateInput.value : '';
     const amount = DOM.editNoteAmountInput ? (parseFloat(DOM.editNoteAmountInput.value) || 0) : 0;
+    const enableAlert = DOM.editNoteAlertToggle ? DOM.editNoteAlertToggle.checked : true;
 
     if (!title) {
       showToast('Please enter note title', 'danger');
@@ -1229,6 +1307,8 @@
     note.title = title;
     note.date = date;
     note.amount = amount;
+    note.enableAlert = enableAlert;
+    note.hasAlert = enableAlert;
     note.updatedAt = Date.now();
 
     saveNotesToStorage();
@@ -1244,6 +1324,7 @@
     const date = (DOM.personalNoteDateInput && DOM.personalNoteDateInput.value)
       ? DOM.personalNoteDateInput.value
       : new Date().toISOString().split('T')[0];
+    const enableAlert = DOM.personalNoteAlertToggle ? DOM.personalNoteAlertToggle.checked : true;
 
     if (!title) {
       showToast('Please enter note title', 'danger');
@@ -1257,6 +1338,8 @@
       amount,
       isCompleted: false,
       date,
+      enableAlert,
+      hasAlert: enableAlert,
       createdAt: now,
       updatedAt: now
     };
@@ -1268,9 +1351,13 @@
     if (DOM.personalNoteDateInput) {
       DOM.personalNoteDateInput.value = new Date().toISOString().split('T')[0];
     }
+    if (DOM.personalNoteAlertToggle) {
+      DOM.personalNoteAlertToggle.checked = true;
+      updatePersonalNoteAlertUI(true);
+    }
     renderPersonalNotesTab();
     renderDashboardReminders();
-    showToast('Note saved with reminder date!', 'success');
+    showToast(enableAlert ? 'Note saved with alert notification enabled!' : 'Note saved (no alert)!', 'success');
   }
 
   function toggleCompleteNote(noteId) {
@@ -1297,10 +1384,13 @@
   // ==========================================================================
   // DASHBOARD REMINDERS & NOTIFICATION BANNER LOGIC
   // ==========================================================================
+  let lastProactiveAlertTimestamp = 0;
+
   function renderDashboardReminders() {
     if (!DOM.dashboardRemindersBanner || !DOM.dashboardRemindersList) return;
 
-    const activeNotes = state.personalNotes.filter(n => !n.isCompleted);
+    // ONLY consider active notes where alert notification is specifically enabled!
+    const activeNotes = state.personalNotes.filter(n => !n.isCompleted && (n.enableAlert === true || (n.enableAlert !== false && n.hasAlert !== false)));
     if (activeNotes.length === 0) {
       DOM.dashboardRemindersBanner.classList.add('hidden');
       return;
@@ -1322,7 +1412,7 @@
       }
     });
 
-    // Only show notification if any notification is actually needed (due today or overdue)
+    // Only show notification if any alert-enabled note is actually due or overdue
     if (dueTodayCount === 0 && overdueCount === 0) {
       DOM.dashboardRemindersBanner.classList.add('hidden');
       return;
@@ -1331,7 +1421,6 @@
     DOM.dashboardRemindersBanner.classList.remove('hidden');
 
     const totalNeeded = dueTodayCount + overdueCount;
-    // Bell icon and emoji removed per user request
     DOM.reminderBannerTitle.textContent = `${totalNeeded} Task${totalNeeded > 1 ? 's' : ''} Need Attention`;
 
     if (dueTodayCount > 0 && overdueCount > 0) {
@@ -1368,6 +1457,42 @@
 
       DOM.dashboardRemindersList.appendChild(chip);
     });
+
+    // Proactive In-App & Browser Alert for notes needing attention
+    checkProactiveAlerts(needingAttention, todayStr);
+  }
+
+  function checkProactiveAlerts(needingAttention, todayStr) {
+    if (!needingAttention || needingAttention.length === 0) return;
+    const now = Date.now();
+    // Throttle to once every 10 minutes so it doesn't repeat on every minor UI re-render
+    if (now - lastProactiveAlertTimestamp < 600000) return;
+    lastProactiveAlertTimestamp = now;
+
+    const dueToday = needingAttention.filter(n => n.date === todayStr);
+    const overdue = needingAttention.filter(n => n.date < todayStr);
+
+    let alertMsg = '';
+    if (dueToday.length > 0 && overdue.length > 0) {
+      alertMsg = `Reminder: ${dueToday.length} note(s) due today, ${overdue.length} overdue!`;
+    } else if (dueToday.length > 0) {
+      alertMsg = `Reminder: "${dueToday[0].title}" ${dueToday.length > 1 ? `and ${dueToday.length - 1} other(s)` : ''} due today!`;
+    } else if (overdue.length > 0) {
+      alertMsg = `Reminder: "${overdue[0].title}" ${overdue.length > 1 ? `and ${overdue.length - 1} other(s)` : ''} overdue!`;
+    }
+
+    if (alertMsg) {
+      setTimeout(() => showToast(alertMsg, 'warning'), 1200);
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification("Akil's Expense Tracker Reminder", {
+            body: alertMsg,
+            icon: '/favicon.ico'
+          });
+        } catch (e) {}
+      }
+    }
   }
 
   // ==========================================================================

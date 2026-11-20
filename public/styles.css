@@ -1324,6 +1324,32 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
   font-size: 0.725rem;
 }
 
+.badge-alert-on {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  background-color: #fef3c7;
+  color: #b45309;
+  border-radius: 4px;
+  font-size: 0.725rem;
+  font-weight: 700;
+  border: 1px solid #fde68a;
+}
+
+.badge-alert-off {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  background-color: #f3f4f6;
+  color: #6b7280;
+  border-radius: 4px;
+  font-size: 0.725rem;
+  font-weight: 700;
+  border: 1px solid #e5e7eb;
+}
+
 .btn-done-chip {
   background: none;
   border: none;
