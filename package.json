@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "akils-expense-tracker",
   "version": "1.0.0",
   "description": "Akil's Expense Tracker with MongoDB Atlas synchronization and offline-first persistence",
