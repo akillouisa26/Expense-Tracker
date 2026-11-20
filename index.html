@@ -419,21 +419,18 @@
 
           <!-- CARD 3: DATA BACKUP & RESTORE -->
           <div class="card card-body mb-4" id="cardDataBackup">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
               <h3 style="font-size: 1.15rem; color: var(--brown-primary); margin: 0;">
                 <i class="fa-solid fa-cloud-arrow-down"></i> Data Backup & Restore
               </h3>
             </div>
-            <p class="text-muted mb-3" style="font-size: 0.85rem;">
-              Your records automatically synchronize with your cloud database. You can also download an offline JSON backup or restore data anytime.
-            </p>
 
-            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;" class="mt-3">
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
               <button type="button" id="btnDownloadJsonBackup" class="btn btn-outline-brown">
-                <i class="fa-solid fa-download"></i> Download JSON Backup
+                <i class="fa-solid fa-download"></i> Download Backup
               </button>
               <label class="btn btn-outline-brown" style="cursor: pointer; margin: 0; display: inline-flex; align-items: center; gap: 0.35rem;">
-                <i class="fa-solid fa-upload"></i> Restore from JSON Backup
+                <i class="fa-solid fa-upload"></i> Restore from Backup
                 <input type="file" id="jsonBackupFileInput" accept=".json" style="display: none;" />
               </label>
             </div>

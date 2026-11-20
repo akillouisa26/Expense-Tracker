@@ -3575,7 +3575,7 @@
       URL.revokeObjectURL(url);
 
       if (!silent) {
-        showToast('Full JSON backup downloaded successfully!', 'success');
+        showToast('Full backup downloaded successfully!', 'success');
       }
     } catch (err) {
       console.error('Backup download error:', err);
