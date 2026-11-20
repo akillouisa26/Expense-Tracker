@@ -124,7 +124,7 @@ app.use(async (req, res, next) => {
 // ============================================================================
 
 // 1. Status & Health Check
-app.get('/api/status', (req, res) => {
+app.get(['/api/status', '/status'], (req, res) => {
   res.json({
     status: 'ok',
     connected: isConnected,
@@ -135,7 +135,7 @@ app.get('/api/status', (req, res) => {
 });
 
 // 2. Update MongoDB Connection String from UI
-app.post('/api/config', async (req, res) => {
+app.post(['/api/config', '/config'], async (req, res) => {
   const { uri } = req.body;
   if (!uri || !uri.trim()) {
     return res.status(400).json({ success: false, message: 'Please provide a valid MongoDB connection string' });
@@ -151,7 +151,7 @@ app.post('/api/config', async (req, res) => {
 });
 
 // 3. Migrate local/Firestore data directly into MongoDB (Zero Data Loss)
-app.post('/api/migrate', async (req, res) => {
+app.post(['/api/migrate', '/migrate'], async (req, res) => {
   if (!isConnected || !db) {
     return res.status(503).json({ success: false, message: 'MongoDB is not connected. Configure connection first.' });
   }
@@ -253,7 +253,7 @@ app.post('/api/migrate', async (req, res) => {
 });
 
 // 4. Get Entire Ledger from MongoDB
-app.get('/api/ledger', async (req, res) => {
+app.get(['/api/ledger', '/ledger'], async (req, res) => {
   if (!isConnected || !db) {
     return res.status(503).json({ success: false, message: 'MongoDB not connected' });
   }
@@ -290,7 +290,7 @@ app.get('/api/ledger', async (req, res) => {
 });
 
 // 5. Synchronize State to MongoDB
-app.post('/api/ledger/sync', async (req, res) => {
+app.post(['/api/ledger/sync', '/ledger/sync'], async (req, res) => {
   if (!isConnected || !db) {
     return res.status(503).json({ success: false, message: 'MongoDB not connected' });
   }
@@ -409,7 +409,7 @@ app.post('/api/ledger/sync', async (req, res) => {
 });
 
 // 6. Complete JSON Database Backup (Download)
-app.get('/api/backup', async (req, res) => {
+app.get(['/api/backup', '/backup'], async (req, res) => {
   if (!isConnected || !db) {
     return res.status(503).json({ success: false, message: 'MongoDB not connected' });
   }

@@ -37,7 +37,7 @@
     isMongoOnline: false,
     isMongoMigrated: false,
     mongoDbName: 'expense_tracker',
-    serverApiBase: (typeof window !== 'undefined' && window.location && window.location.port === '3000') 
+    serverApiBase: (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin.startsWith('http') && !window.location.origin.includes('5500')) 
       ? window.location.origin 
       : 'http://localhost:3000',
     firebaseConfig: null,
