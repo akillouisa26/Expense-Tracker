@@ -67,12 +67,6 @@
         <h2 id="topPageTitle" class="top-page-title">Dashboard</h2>
 
         <div class="top-right-actions" style="display: flex; align-items: center; gap: 0.75rem;">
-          <!-- MONGODB ATLAS STATUS PILL -->
-          <button id="btnMongoStatusHeader" class="btn btn-outline-brown btn-sm" title="MongoDB Atlas Database Status" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-weight: 700;">
-            <span id="mongoHeaderDot" class="status-dot offline"></span>
-            <span id="mongoHeaderText">MongoDB</span>
-          </button>
-
           <!-- ADD ENTRY BUTTON (VISIBLE ONLY ON DASHBOARD PAGE) -->
           <button id="btnTopPlusAction" class="btn btn-plus-topright">
             <i class="fa-solid fa-plus"></i> Add Entry
@@ -423,53 +417,26 @@
             </form>
           </div>
 
-          <!-- MONGODB ATLAS DATABASE CONFIGURATION CARD -->
-          <div class="card card-body mb-4" id="cardMongoDatabase">
+          <!-- CARD 3: DATA BACKUP & RESTORE -->
+          <div class="card card-body mb-4" id="cardDataBackup">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
               <h3 style="font-size: 1.15rem; color: var(--brown-primary); margin: 0;">
-                <i class="fa-solid fa-database"></i> MongoDB Atlas Cloud Database
+                <i class="fa-solid fa-cloud-arrow-down"></i> Data Backup & Restore
               </h3>
-              <div id="mongoConnectionBadge" class="badge-status-pill offline">
-                <span class="status-dot offline" id="mongoStatusDot"></span>
-                <span id="mongoStatusText">Disconnected</span>
-              </div>
             </div>
             <p class="text-muted mb-3" style="font-size: 0.85rem;">
-              Connect your expense tracker directly to MongoDB Atlas. Your existing categories, transactions, savings vault, and notes are preserved with <strong>zero data loss</strong>.
+              Your records automatically synchronize with your cloud database. You can also download an offline JSON backup or restore data anytime.
             </p>
 
-            <form id="mongoConfigForm">
-              <div class="form-group mb-3">
-                <label for="mongoUriInput">MongoDB Connection String (URI)</label>
-                <div class="password-input-group">
-                  <input type="password" id="mongoUriInput" class="form-input" placeholder="mongodb+srv://<username>:<password>@cluster0.abcde.mongodb.net/?retryWrites=true&w=majority" />
-                  <button type="button" class="toggle-password-btn" data-target="mongoUriInput" tabindex="-1">
-                    <i class="fa-solid fa-eye"></i>
-                  </button>
-                </div>
-                <small class="text-muted" style="display: block; margin-top: 0.35rem;">
-                  Your connection string is stored safely in your local <code>.env</code> file.
-                </small>
-              </div>
-
-              <div id="mongoStatusAlert" class="alert-box hidden mb-3"></div>
-
-              <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;" class="mt-3">
-                <button type="submit" id="btnConnectMongo" class="btn btn-brown">
-                  <i class="fa-solid fa-plug"></i> Connect to MongoDB
-                </button>
-                <button type="button" id="btnMigrateToMongo" class="btn btn-outline-brown">
-                  <i class="fa-solid fa-cloud-arrow-up"></i> Backup & Migrate All Data to MongoDB
-                </button>
-                <button type="button" id="btnDownloadJsonBackup" class="btn btn-outline-brown">
-                  <i class="fa-solid fa-download"></i> Download JSON Backup
-                </button>
-                <label class="btn btn-outline-brown" style="cursor: pointer; margin: 0; display: inline-flex; align-items: center; gap: 0.35rem;">
-                  <i class="fa-solid fa-upload"></i> Restore from JSON Backup
-                  <input type="file" id="jsonBackupFileInput" accept=".json" style="display: none;" />
-                </label>
-              </div>
-            </form>
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;" class="mt-3">
+              <button type="button" id="btnDownloadJsonBackup" class="btn btn-outline-brown">
+                <i class="fa-solid fa-download"></i> Download JSON Backup
+              </button>
+              <label class="btn btn-outline-brown" style="cursor: pointer; margin: 0; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <i class="fa-solid fa-upload"></i> Restore from JSON Backup
+                <input type="file" id="jsonBackupFileInput" accept=".json" style="display: none;" />
+              </label>
+            </div>
           </div>
         </div>
       </section>
