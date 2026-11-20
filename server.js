@@ -308,6 +308,12 @@ app.post(['/api/ledger/sync', '/ledger/sync'], async (req, res) => {
 
     const delSet = new Set(Array.isArray(deletedIds) ? deletedIds : []);
 
+    // Merge server tombstones so clients cannot resurrect deleted records
+    const existingMeta = await db.collection('metadata').findOne({ _id: 'app_settings' });
+    if (existingMeta && Array.isArray(existingMeta.deletedIds)) {
+      existingMeta.deletedIds.forEach(id => delSet.add(id));
+    }
+
     // 1. Update Categories
     if (Array.isArray(segregations)) {
       const activeSegs = segregations.filter(s => !delSet.has(s.id));

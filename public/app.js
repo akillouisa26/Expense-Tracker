@@ -452,7 +452,7 @@
     // Choice Modal Options
     DOM.btnChoiceAddExisting.addEventListener('click', () => {
       DOM.modalPlusAction.close();
-      openTransactionModal('INCOME');
+      openTransactionModal('EXPENSE', state.activeDetailSegregationId || null);
     });
 
     DOM.btnChoiceAddNewSegregation.addEventListener('click', () => {
@@ -492,8 +492,30 @@
     }
 
     DOM.txTypeSelect.addEventListener('change', () => {
-      updateTransactionModalTitleAndCategory(DOM.txTypeSelect.value, state.activeModalSegregationId);
+      const type = DOM.txTypeSelect.value;
+      const currentSegId = state.activeModalSegregationId || (DOM.txSegregationSelect ? DOM.txSegregationSelect.value : '');
+      const seg = state.segregations.find(s => s.id === currentSegId);
+      const segName = seg ? seg.name : '';
+      if (type === 'EXPENSE') {
+        DOM.transactionModalTitle.textContent = segName ? `Debit (Spend Money on ${segName})` : 'Debit (Spend Money)';
+      } else {
+        DOM.transactionModalTitle.textContent = segName ? `Credit (Add Money to ${segName})` : 'Credit (Add Money)';
+      }
     });
+
+    if (DOM.txSegregationSelect) {
+      DOM.txSegregationSelect.addEventListener('change', () => {
+        const type = DOM.txTypeSelect ? DOM.txTypeSelect.value : 'EXPENSE';
+        const currentSegId = DOM.txSegregationSelect.value;
+        const seg = state.segregations.find(s => s.id === currentSegId);
+        const segName = seg ? seg.name : '';
+        if (segName) {
+          DOM.transactionModalTitle.textContent = type === 'EXPENSE'
+            ? `Debit (Spend Money on ${segName})`
+            : `Credit (Add Money to ${segName})`;
+        }
+      });
+    }
 
     // Detail Modal Actions
     DOM.btnQuickAddBucketExpense.addEventListener('click', () => {
@@ -1372,7 +1394,7 @@
       }
       const data = monthlyMap.get(mKey);
       const amt = Number(t.amount) || 0;
-      const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
+      const catName = (state.segregations.find(s => s.id === t.segregationId)?.name) || t.segregationName || 'General';
       if (t.type === 'EXPENSE') {
         data.expense += amt;
         totalExpenseRecorded += amt;
@@ -1484,7 +1506,7 @@
     const categoryTotals = {};
     state.transactions.forEach(t => {
       if (t.type === 'EXPENSE') {
-        const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
+        const catName = (state.segregations.find(s => s.id === t.segregationId)?.name) || t.segregationName || 'General';
         categoryTotals[catName] = (categoryTotals[catName] || 0) + (Number(t.amount) || 0);
       }
     });
@@ -2090,13 +2112,17 @@
     DOM.modalSegregationDetail.showModal();
   }
 
-  function populateSegregationDropdowns(type = 'EXPENSE') {
+  function populateSegregationDropdowns(selectedId = null) {
+    const currentVal = selectedId || (DOM.txSegregationSelect ? DOM.txSegregationSelect.value : '');
     let list = state.segregations;
     let options = list.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
     if (list.length === 0) {
       options = `<option value="">No available categories (Add a category first)</option>`;
     }
     DOM.txSegregationSelect.innerHTML = options;
+    if (currentVal && list.some(s => s.id === currentVal)) {
+      DOM.txSegregationSelect.value = currentVal;
+    }
 
     const activeIds = new Set(state.segregations.map(s => s.id));
     const extraCategories = [];
@@ -2146,12 +2172,23 @@
       }
     }
 
-    populateSegregationDropdowns(type);
+    const retainedSegId = (DOM.txSegregationSelect && DOM.txSegregationSelect.value) ? DOM.txSegregationSelect.value : null;
+    populateSegregationDropdowns(retainedSegId);
     DOM.txSegregationSelect.classList.remove('hidden');
     if (DOM.txSegregationReadOnly) {
       DOM.txSegregationReadOnly.classList.add('hidden');
     }
-    DOM.transactionModalTitle.textContent = type === 'EXPENSE' ? 'Debit (Spend Money)' : 'Credit (Add Money)';
+
+    const activeSegId = DOM.txSegregationSelect ? DOM.txSegregationSelect.value : null;
+    const activeSeg = state.segregations.find(s => s.id === activeSegId);
+    const activeSegName = activeSeg ? activeSeg.name : '';
+    if (activeSegName) {
+      DOM.transactionModalTitle.textContent = type === 'EXPENSE'
+        ? `Debit (Spend Money on ${activeSegName})`
+        : `Credit (Add Money to ${activeSegName})`;
+    } else {
+      DOM.transactionModalTitle.textContent = type === 'EXPENSE' ? 'Debit (Spend Money)' : 'Credit (Add Money)';
+    }
   }
 
   function openTransactionModal(type = 'EXPENSE', preselectedSegId = null, txId = null) {
@@ -2330,47 +2367,6 @@
     if (DOM.modalAlert) DOM.modalAlert.showModal();
   }
 
-  function findDestinationCategory(note, currentSegId) {
-    if (!note || !note.trim()) return null;
-    const cleanNote = note.trim().toLowerCase();
-
-    // 1. Exact match with another category name (case-insensitive)
-    let matched = state.segregations.find(s => 
-      s.id !== currentSegId && s.name.trim().toLowerCase() === cleanNote
-    );
-    if (matched) return matched;
-
-    // 2. Whole word match within the note (e.g. "To Amma", "Amma fund", "for Makeup")
-    matched = state.segregations.find(s => {
-      if (s.id === currentSegId) return false;
-      const sName = s.name.trim();
-      if (sName.length < 2) return false;
-      const escaped = sName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(^|[\\s.,!?;:\\-_])${escaped}($|[\\s.,!?;:\\-_])`, 'i');
-      return regex.test(cleanNote);
-    });
-    if (matched) return matched;
-
-    // 3. Fallback: If note contains 'savings' and no 'Savings' category exists yet, create it
-    if (cleanNote.includes('savings')) {
-      let savingsCat = state.segregations.find(s => s.name.trim().toLowerCase() === 'savings');
-      if (!savingsCat) {
-        savingsCat = {
-          id: 'seg_savings_' + Date.now(),
-          name: 'Savings',
-          allocatedFund: 0
-        };
-        state.segregations.push(savingsCat);
-        saveSegregationsToStorage();
-      }
-      if (savingsCat.id !== currentSegId) {
-        return savingsCat;
-      }
-    }
-
-    return null;
-  }
-
   function handleTransactionSubmit(e) {
     e.preventDefault();
     const txId = DOM.txIdInput.value;
@@ -2417,8 +2413,6 @@
       }
     }
 
-    const destSeg = (type === 'EXPENSE') ? findDestinationCategory(note, segId) : null;
-
     const now = Date.now();
 
     if (txId) {
@@ -2444,46 +2438,6 @@
             targetSeg.updatedAt = now;
             saveSegregationsToStorage();
           }
-        }
-
-        // Synchronize linked auto-transfer transaction
-        if (tx.linkedTransferId) {
-          const linkedTx = state.transactions.find(t => t.id === tx.linkedTransferId);
-          if (linkedTx) {
-            if (destSeg) {
-              linkedTx.segregationId = destSeg.id;
-              linkedTx.segregationName = destSeg.name;
-              linkedTx.amount = amount;
-              linkedTx.date = date;
-              linkedTx.monthKey = getCurrentMonthKey(new Date(date));
-              linkedTx.note = `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`;
-              linkedTx.updatedAt = now;
-            } else {
-              // Note no longer mentions a category, remove the paired transfer
-              markIdAsDeleted(tx.linkedTransferId);
-              state.transactions = state.transactions.filter(t => t.id !== tx.linkedTransferId);
-              delete tx.linkedTransferId;
-            }
-          }
-        } else if (type === 'EXPENSE' && destSeg) {
-          // Previously didn't have linked transfer, now has one
-          const autoTxId = 'tx_auto_' + now;
-          tx.linkedTransferId = autoTxId;
-
-          state.transactions.push({
-            id: autoTxId,
-            segregationId: destSeg.id,
-            segregationName: destSeg.name,
-            type: 'INCOME',
-            amount: amount,
-            date: date,
-            monthKey: getCurrentMonthKey(new Date(date)),
-            note: `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`,
-            linkedTransferId: tx.id,
-            createdAt: now,
-            updatedAt: now
-          });
-          showToast(`₹${amount} automatically credited to ${destSeg.name}!`, 'info');
         }
 
         // If editing an entry originating from savings vault, keep savingsVault in sync
@@ -2515,28 +2469,6 @@
         createdAt: now,
         updatedAt: now
       };
-
-      // AUTO-TRANSFER: IF EXPENSE MENTIONS ANY OTHER CATEGORY IN DESCRIPTION
-      if (type === 'EXPENSE' && destSeg) {
-        const autoTxId = 'tx_auto_' + (now + 1);
-        txObj.linkedTransferId = autoTxId;
-
-        const autoTx = {
-          id: autoTxId,
-          segregationId: destSeg.id,
-          segregationName: destSeg.name,
-          type: 'INCOME',
-          amount: amount,
-          date: date,
-          monthKey: getCurrentMonthKey(new Date(date)),
-          note: `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`,
-          linkedTransferId: newTxId,
-          createdAt: now + 1,
-          updatedAt: now + 1
-        };
-        state.transactions.push(autoTx);
-        showToast(`Expense recorded & ₹${amount} automatically credited to ${destSeg.name}!`, 'success');
-      }
 
       state.transactions.push(txObj);
     }
@@ -2769,6 +2701,20 @@
     if (!cloudData || typeof cloudData !== 'object') return;
     let stateChangedLocally = false;
     let cloudNeedsUpdate = false;
+
+    // 0. Merge Deleted IDs / Tombstones
+    if (cloudData.deletedIds && Array.isArray(cloudData.deletedIds)) {
+      if (!state.deletedIds) state.deletedIds = new Set();
+      cloudData.deletedIds.forEach(id => state.deletedIds.add(id));
+      localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(state.deletedIds)));
+    }
+
+    if (state.deletedIds && state.deletedIds.size > 0) {
+      state.transactions = state.transactions.filter(t => !state.deletedIds.has(t.id));
+      state.segregations = state.segregations.filter(s => !state.deletedIds.has(s.id));
+      state.savingsVault = state.savingsVault.filter(s => !state.deletedIds.has(s.id));
+      state.personalNotes = state.personalNotes.filter(n => !state.deletedIds.has(n.id));
+    }
 
     // 1. Merge Segregations
     if (cloudData.segregations && Array.isArray(cloudData.segregations)) {
@@ -3386,6 +3332,7 @@
             transactions: mongoData.transactions,
             savingsVault: mongoData.savingsVault,
             personalNotes: mongoData.personalNotes,
+            deletedIds: mongoData.deletedIds,
             lastUpdated: mongoData.lastUpdated
           });
         }
