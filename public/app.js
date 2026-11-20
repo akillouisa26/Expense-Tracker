@@ -226,9 +226,7 @@
     DOM.editNoteDateInput = document.getElementById('editNoteDateInput');
     DOM.editNoteAmountInput = document.getElementById('editNoteAmountInput');
     DOM.personalNoteAlertToggle = document.getElementById('personalNoteAlertToggle');
-    DOM.personalNoteAlertHelp = document.getElementById('personalNoteAlertHelp');
     DOM.editNoteAlertToggle = document.getElementById('editNoteAlertToggle');
-    DOM.editNoteAlertHelp = document.getElementById('editNoteAlertHelp');
     if (DOM.personalNoteDateInput) {
       DOM.personalNoteDateInput.value = new Date().toISOString().split('T')[0];
     }
@@ -1144,13 +1142,6 @@
         icon.style.color = '#9ca3af';
       }
     }
-    if (DOM.personalNoteAlertHelp) {
-      if (isEnabled) {
-        DOM.personalNoteAlertHelp.innerHTML = '<i class="fa-solid fa-circle-check" style="color: var(--credit-color);"></i> Alert is <strong>ON</strong> — you will receive notification when this note is due.';
-      } else {
-        DOM.personalNoteAlertHelp.innerHTML = '<i class="fa-solid fa-circle-xmark" style="color: #6b7280;"></i> Alert is <strong>OFF</strong> — no notifications or reminders will be sent.';
-      }
-    }
   }
 
   function updateEditNoteAlertUI(isEnabled) {
@@ -1162,13 +1153,6 @@
       } else {
         icon.className = 'fa-regular fa-bell-slash';
         icon.style.color = '#9ca3af';
-      }
-    }
-    if (DOM.editNoteAlertHelp) {
-      if (isEnabled) {
-        DOM.editNoteAlertHelp.innerHTML = '<i class="fa-solid fa-circle-check" style="color: var(--credit-color);"></i> Alert is <strong>ON</strong> — you will receive notification when this note is due.';
-      } else {
-        DOM.editNoteAlertHelp.innerHTML = '<i class="fa-solid fa-circle-xmark" style="color: #6b7280;"></i> Alert is <strong>OFF</strong> — no notifications or reminders will be sent.';
       }
     }
   }
