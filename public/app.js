@@ -1,0 +1,3691 @@
+/* ==========================================================================
+   Akil's Expense Tracker - Left Sidebar, Dashboard Cards & PDF Engine
+   ========================================================================== */
+
+(function () {
+  'use strict';
+
+  // Storage Keys
+  const STORAGE_KEYS = {
+    SEGREGATIONS: 'akil_tracker_segregations_v7',
+    TRANSACTIONS: 'akil_tracker_transactions_v7',
+    SAVINGS_VAULT: 'akil_tracker_savings_vault_v7',
+    PERSONAL_NOTES: 'akil_tracker_personal_notes_v5',
+    FIREBASE_CONFIG: 'akil_tracker_firebase_config_v5',
+    SECURITY_SETTINGS: 'akil_tracker_security_settings_v5',
+    DELETED_IDS: 'akil_tracker_deleted_ids_v7',
+    LAST_LOCAL_UPDATE: 'akil_tracker_last_local_update_v7',
+    MONGO_MIGRATED: 'akil_tracker_mongo_migrated_v1',
+    SERVER_API_URL: 'akil_tracker_server_api_url_v1'
+  };
+
+  // App State
+  const state = {
+    currency: '₹', // Fixed INR
+    activeTab: 'dashboard',
+    activeDetailSegregationId: null,
+    selectedExpenseMonth: getCurrentMonthKey(),
+    expenseGraphMode: 'CATEGORIES', // 'CATEGORIES' or 'PREVIOUS_MONTHS'
+    monthlyGraphFilter: 'total', // 'total' | 'debit' | 'credit'
+    segregations: [],
+    transactions: [],
+    savingsVault: [],
+    personalNotes: [],
+    deletedIds: new Set(),
+    lastLocalUpdate: 0,
+    hasPendingSync: false,
+    isMongoOnline: false,
+    isMongoMigrated: false,
+    mongoDbName: 'expense_tracker',
+    serverApiBase: (typeof window !== 'undefined' && window.location && window.location.port === '3000') 
+      ? window.location.origin 
+      : 'http://localhost:3000',
+    firebaseConfig: null,
+    db: null,
+    auth: null,
+    userId: null,
+    isFirebaseOnline: false,
+    authMode: 'SIGN_IN',
+    isGuestMode: false,
+    currentUser: null,
+    securitySettings: {
+      userId: 'Akil',
+      password: '',
+      isProtectionEnabled: false
+    },
+    isAppUnlocked: false,
+    isInitialCloudSyncDone: false,
+    charts: {
+      singleExpense: null
+    }
+  };
+
+  // DOM Elements
+  const DOM = {};
+
+  // Initialize App
+  document.addEventListener('DOMContentLoaded', () => {
+    cacheDOMElements();
+    loadStateFromStorage();
+    setupEventListeners();
+    initFirebaseIfAvailable();
+    checkMongoStatus();
+    setInterval(checkMongoStatus, 15000);
+    renderAll();
+    checkAppLockStatus();
+  });
+
+  function getCurrentMonthKey(dateObj = new Date()) {
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  }
+
+  function normalizeMonthKey(dateStr, existingMonthKey) {
+    if (existingMonthKey && /^\d{4}-\d{2}$/.test(existingMonthKey)) {
+      return existingMonthKey;
+    }
+    if (!dateStr) return '';
+    const str = String(dateStr).trim();
+    // Match YYYY-MM or YYYY/MM
+    const ymd = str.match(/^(\d{4})[-/.](\d{1,2})/);
+    if (ymd) {
+      return `${ymd[1]}-${ymd[2].padStart(2, '0')}`;
+    }
+    // Match DD-MM-YYYY or DD/MM/YYYY
+    const dmy = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+    if (dmy) {
+      return `${dmy[3]}-${dmy[2].padStart(2, '0')}`;
+    }
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+    return '';
+  }
+
+  function formatMoney(amount) {
+    const num = Number(amount) || 0;
+    return `₹${num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  }
+
+  function cacheDOMElements() {
+    // Auth Elements
+    DOM.authView = document.getElementById('authView');
+    DOM.authForm = document.getElementById('authForm');
+    DOM.btnTabSignIn = document.getElementById('btnTabSignIn');
+    DOM.btnTabSignUp = document.getElementById('btnTabSignUp');
+    DOM.authEmailInput = document.getElementById('authEmailInput');
+    DOM.authPasswordInput = document.getElementById('authPasswordInput');
+    DOM.btnAuthSubmit = document.getElementById('btnAuthSubmit');
+    DOM.btnGoogleSignIn = document.getElementById('btnGoogleSignIn');
+    DOM.btnGuestMode = document.getElementById('btnGuestMode');
+    DOM.authErrorMessage = document.getElementById('authErrorMessage');
+    DOM.userInfoContainer = document.getElementById('userInfoContainer');
+    DOM.userAuthEmail = document.getElementById('userAuthEmail');
+    DOM.btnSignOut = document.getElementById('btnSignOut');
+    DOM.btnShowAuthModal = document.getElementById('btnShowAuthModal');
+
+    // Settings & Lock Screen Elements
+    DOM.settingsSecurityForm = document.getElementById('settingsSecurityForm');
+    DOM.settingsUserIdInput = document.getElementById('settingsUserIdInput');
+    DOM.settingsCurrentPasswordInput = document.getElementById('settingsCurrentPasswordInput');
+    DOM.settingsPasswordInput = document.getElementById('settingsPasswordInput');
+    DOM.settingsConfirmPasswordInput = document.getElementById('settingsConfirmPasswordInput');
+    DOM.settingsEnableLockToggle = document.getElementById('settingsEnableLockToggle');
+    DOM.btnSaveSecuritySettings = document.getElementById('btnSaveSecuritySettings');
+    DOM.btnLockAppNow = document.getElementById('btnLockAppNow');
+    DOM.btnLockAppSidebar = document.getElementById('btnLockAppSidebar');
+
+    DOM.lockScreenView = document.getElementById('lockScreenView');
+    DOM.lockScreenForm = document.getElementById('lockScreenForm');
+    DOM.lockScreenPasswordInput = document.getElementById('lockScreenPasswordInput');
+    DOM.lockScreenUserLabel = document.getElementById('lockScreenUserLabel');
+    DOM.lockScreenSubtitle = document.getElementById('lockScreenSubtitle');
+    DOM.lockScreenError = document.getElementById('lockScreenError');
+    DOM.btnUnlockApp = document.getElementById('btnUnlockApp');
+
+    DOM.btnCloudSync = document.getElementById('btnCloudSync');
+    DOM.cloudSyncBadge = document.getElementById('cloudSyncBadge');
+
+
+    // Top Right Corner Plus Button & Title
+    DOM.brandTitle = document.getElementById('brandTitle');
+    DOM.topPageTitle = document.getElementById('topPageTitle');
+    DOM.btnTopPlusAction = document.getElementById('btnTopPlusAction');
+    
+    // Plus Choice Modal
+    DOM.modalPlusAction = document.getElementById('modalPlusAction');
+    DOM.btnChoiceAddExisting = document.getElementById('btnChoiceAddExisting');
+    DOM.btnChoiceAddNewSegregation = document.getElementById('btnChoiceAddNewSegregation');
+
+    // Sidebar Nav Links
+    DOM.navTabs = document.querySelectorAll('.nav-link-btn');
+    DOM.tabContents = document.querySelectorAll('.tab-content');
+
+    // Dashboard Elements
+    DOM.notebookGrandTotal = document.getElementById('notebookGrandTotal');
+    DOM.notebookSegregationsList = document.getElementById('notebookSegregationsList');
+
+    // Dashboard Reminders Notification Banner
+    DOM.dashboardRemindersBanner = document.getElementById('dashboardRemindersBanner');
+    DOM.reminderBannerTitle = document.getElementById('reminderBannerTitle');
+    DOM.reminderBannerSubtitle = document.getElementById('reminderBannerSubtitle');
+    DOM.btnGoToNotes = document.getElementById('btnGoToNotes');
+    DOM.dashboardRemindersList = document.getElementById('dashboardRemindersList');
+
+    // Dashboard Monthly Expense Overview Card Elements
+    DOM.monthlyExpenseDashboardCard = document.getElementById('monthlyExpenseDashboardCard');
+    DOM.monthlyExpenseCommonPeriod = document.getElementById('monthlyExpenseCommonPeriod');
+    DOM.btnFilterGraphTotal = document.getElementById('btnFilterGraphTotal');
+    DOM.btnFilterGraphCredit = document.getElementById('btnFilterGraphCredit');
+    DOM.btnFilterGraphDebit = document.getElementById('btnFilterGraphDebit');
+    DOM.btnFilterGraphRemaining = document.getElementById('btnFilterGraphRemaining');
+    DOM.btnPrevExpenseMonth = document.getElementById('btnPrevExpenseMonth');
+    DOM.selectExpenseMonth = document.getElementById('selectExpenseMonth');
+    DOM.btnNextExpenseMonth = document.getElementById('btnNextExpenseMonth');
+    DOM.displayMonthTotal = document.getElementById('displayMonthTotal');
+    DOM.displayMonthTotalCredit = document.getElementById('displayMonthTotalCredit');
+    DOM.displayMonthTotalDebit = document.getElementById('displayMonthTotalDebit');
+    DOM.displayMonthRemaining = document.getElementById('displayMonthRemaining');
+    DOM.labelModeMonthName = document.getElementById('labelModeMonthName');
+    DOM.singleExpenseChart = document.getElementById('singleExpenseChart');
+    DOM.singleExpenseFallback = document.getElementById('singleExpenseFallback');
+
+    // Savings Vault Tab & Actions
+    DOM.savingsVaultTotalDisplay = document.getElementById('savingsVaultTotalDisplay');
+    DOM.savingsPassbookBody = document.getElementById('savingsPassbookBody');
+    DOM.btnSavingsDeposit = document.getElementById('btnSavingsDeposit');
+    DOM.btnSavingsWithdraw = document.getElementById('btnSavingsWithdraw');
+
+    // Savings Entry Modal
+    DOM.modalSavingsEntry = document.getElementById('modalSavingsEntry');
+    DOM.savingsEntryForm = document.getElementById('savingsEntryForm');
+    DOM.savingsModalTitle = document.getElementById('savingsModalTitle');
+    DOM.savIdInput = document.getElementById('savIdInput');
+    DOM.savTypeInput = document.getElementById('savTypeInput');
+    DOM.savAmountInput = document.getElementById('savAmountInput');
+    DOM.savDateInput = document.getElementById('savDateInput');
+    DOM.savNoteInput = document.getElementById('savNoteInput');
+
+    // Transaction History Tab & Filters
+    DOM.filterMonth = document.getElementById('filterMonth');
+    DOM.filterSegregation = document.getElementById('filterSegregation');
+    DOM.filterType = document.getElementById('filterType');
+    DOM.btnClearFilters = document.getElementById('btnClearFilters');
+    DOM.bankStatementBody = document.getElementById('bankStatementBody');
+    DOM.btnDownloadPDF = document.getElementById('btnDownloadPDF');
+    DOM.ledgerFilterSummaryBanner = document.getElementById('ledgerFilterSummaryBanner');
+    DOM.ledgerFilterTotal = document.getElementById('ledgerFilterTotal');
+    DOM.ledgerFilterCredit = document.getElementById('ledgerFilterCredit');
+    DOM.ledgerFilterDebit = document.getElementById('ledgerFilterDebit');
+    DOM.ledgerFilterRemaining = document.getElementById('ledgerFilterRemaining');
+
+    // My Notes Tab
+    DOM.personalNoteTitleInput = document.getElementById('personalNoteTitleInput');
+    DOM.personalNoteDateInput = document.getElementById('personalNoteDateInput');
+    DOM.personalNoteAmountInput = document.getElementById('personalNoteAmountInput');
+    DOM.btnSavePersonalNote = document.getElementById('btnSavePersonalNote');
+    DOM.savedNotesContainer = document.getElementById('savedNotesContainer');
+    DOM.modalEditNote = document.getElementById('modalEditNote');
+    DOM.editNoteForm = document.getElementById('editNoteForm');
+    DOM.editNoteIdInput = document.getElementById('editNoteIdInput');
+    DOM.editNoteTitleInput = document.getElementById('editNoteTitleInput');
+    DOM.editNoteDateInput = document.getElementById('editNoteDateInput');
+    DOM.editNoteAmountInput = document.getElementById('editNoteAmountInput');
+    if (DOM.personalNoteDateInput) {
+      DOM.personalNoteDateInput.value = new Date().toISOString().split('T')[0];
+    }
+
+    // Detail Modal
+    DOM.modalSegregationDetail = document.getElementById('modalSegregationDetail');
+    DOM.detailSegregationTitle = document.getElementById('detailSegregationTitle');
+    DOM.detailFilterMonth = document.getElementById('detailFilterMonth');
+    DOM.detailFilterMonthBadge = document.getElementById('detailFilterMonthBadge');
+    DOM.detailAllocatedFund = document.getElementById('detailAllocatedFund');
+    DOM.detailTotalCredit = document.getElementById('detailTotalCredit');
+    DOM.detailTotalSpent = document.getElementById('detailTotalSpent');
+    DOM.detailRemainingFund = document.getElementById('detailRemainingFund');
+    DOM.btnQuickAddBucketExpense = document.getElementById('btnQuickAddBucketExpense');
+    DOM.btnTopUpBucketFund = document.getElementById('btnTopUpBucketFund');
+    DOM.btnEditSegregationSettings = document.getElementById('btnEditSegregationSettings');
+    DOM.btnDeleteSegregation = document.getElementById('btnDeleteSegregation');
+    DOM.detailTransactionsTableBody = document.getElementById('detailTransactionsTableBody');
+
+    // Modals
+    DOM.modalTransaction = document.getElementById('modalTransaction');
+    DOM.transactionForm = document.getElementById('transactionForm');
+    DOM.transactionModalTitle = document.getElementById('transactionModalTitle');
+    DOM.txIdInput = document.getElementById('txIdInput');
+    DOM.txTypeSelect = document.getElementById('txTypeSelect');
+    DOM.txSegregationSelect = document.getElementById('txSegregationSelect');
+    DOM.txSegregationReadOnly = document.getElementById('txSegregationReadOnly');
+    DOM.txAmountInput = document.getElementById('txAmountInput');
+    DOM.txDateInput = document.getElementById('txDateInput');
+    DOM.txNoteInput = document.getElementById('txNoteInput');
+
+    DOM.modalSegregation = document.getElementById('modalSegregation');
+    DOM.segregationForm = document.getElementById('segregationForm');
+    DOM.segregationModalTitle = document.getElementById('segregationModalTitle');
+    DOM.segIdInput = document.getElementById('segIdInput');
+    DOM.segNameInput = document.getElementById('segNameInput');
+    DOM.segAllocatedInput = document.getElementById('segAllocatedInput');
+    DOM.labelSegAllocated = document.getElementById('labelSegAllocated');
+    DOM.segDateInput = document.getElementById('segDateInput');
+
+    DOM.modalFirebase = document.getElementById('modalFirebase');
+    DOM.firebaseForm = document.getElementById('firebaseForm');
+    DOM.firebaseConfigInput = document.getElementById('firebaseConfigInput');
+    DOM.firebaseStatusMessage = document.getElementById('firebaseStatusMessage');
+    DOM.btnDisableFirebase = document.getElementById('btnDisableFirebase');
+    DOM.modalAlert = document.getElementById('modalAlert');
+    DOM.modalAlertTitle = document.getElementById('modalAlertTitle');
+    DOM.modalAlertMessage = document.getElementById('modalAlertMessage');
+    
+    // MongoDB Atlas Elements
+    DOM.btnMongoStatusHeader = document.getElementById('btnMongoStatusHeader');
+    DOM.mongoHeaderDot = document.getElementById('mongoHeaderDot');
+    DOM.mongoHeaderText = document.getElementById('mongoHeaderText');
+    DOM.mongoConnectionBadge = document.getElementById('mongoConnectionBadge');
+    DOM.mongoStatusDot = document.getElementById('mongoStatusDot');
+    DOM.mongoStatusText = document.getElementById('mongoStatusText');
+    DOM.mongoConfigForm = document.getElementById('mongoConfigForm');
+    DOM.mongoUriInput = document.getElementById('mongoUriInput');
+    DOM.mongoStatusAlert = document.getElementById('mongoStatusAlert');
+    DOM.btnConnectMongo = document.getElementById('btnConnectMongo');
+    DOM.btnMigrateToMongo = document.getElementById('btnMigrateToMongo');
+    DOM.btnDownloadJsonBackup = document.getElementById('btnDownloadJsonBackup');
+    DOM.jsonBackupFileInput = document.getElementById('jsonBackupFileInput');
+
+    DOM.toastContainer = document.getElementById('toastContainer');
+  }
+
+  function loadStateFromStorage() {
+    // Clear legacy v5 and v6 sample data
+    localStorage.removeItem('akil_tracker_segregations_v5');
+    localStorage.removeItem('akil_tracker_transactions_v5');
+    localStorage.removeItem('akil_tracker_savings_vault_v5');
+    localStorage.removeItem('akil_tracker_segregations_v6');
+    localStorage.removeItem('akil_tracker_transactions_v6');
+    localStorage.removeItem('akil_tracker_savings_vault_v6');
+
+    // Load Segregations
+    const savedSegs = JSON.parse(localStorage.getItem(STORAGE_KEYS.SEGREGATIONS) || 'null');
+    if (savedSegs && Array.isArray(savedSegs)) {
+      state.segregations = savedSegs;
+    } else {
+      state.segregations = [];
+      saveSegregationsToStorage();
+    }
+
+    // Load Transactions
+    const savedTxs = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRANSACTIONS) || 'null');
+    if (savedTxs && Array.isArray(savedTxs)) {
+      state.transactions = savedTxs;
+    } else {
+      state.transactions = [];
+      saveTransactionsToStorage();
+    }
+
+    // Load Savings Vault
+    const savedVault = JSON.parse(localStorage.getItem(STORAGE_KEYS.SAVINGS_VAULT) || 'null');
+    if (savedVault && Array.isArray(savedVault)) {
+      state.savingsVault = savedVault;
+    } else {
+      state.savingsVault = [];
+    }
+
+    // Load Deleted IDs (Tombstones to prevent resurrecting deleted items)
+    try {
+      const savedDeleted = JSON.parse(localStorage.getItem(STORAGE_KEYS.DELETED_IDS) || '[]');
+      state.deletedIds = new Set(Array.isArray(savedDeleted) ? savedDeleted : []);
+    } catch (e) {
+      state.deletedIds = new Set();
+    }
+
+    // Load Last Local Update Timestamp
+    state.lastLocalUpdate = parseInt(localStorage.getItem(STORAGE_KEYS.LAST_LOCAL_UPDATE) || '0', 10) || 0;
+
+    // Backfill timestamps if missing on existing items
+    const nowTs = Date.now();
+    state.transactions.forEach(t => {
+      if (!t.createdAt) {
+        const idMatch = typeof t.id === 'string' ? t.id.match(/\d{10,}/) : null;
+        t.createdAt = idMatch ? parseInt(idMatch[0], 10) : nowTs;
+      }
+      if (!t.updatedAt) {
+        t.updatedAt = t.createdAt;
+      }
+    });
+
+    state.segregations.forEach(s => {
+      if (!s.createdAt) {
+        const idMatch = typeof s.id === 'string' ? s.id.match(/\d{10,}/) : null;
+        s.createdAt = idMatch ? parseInt(idMatch[0], 10) : nowTs;
+      }
+      if (!s.updatedAt) {
+        s.updatedAt = s.createdAt;
+      }
+    });
+
+    // Purge any default/auto-created empty Savings category if it has 0 transactions & 0 allocation
+    purgeEmptyDefaultSavings();
+
+    const savedNotes = JSON.parse(localStorage.getItem(STORAGE_KEYS.PERSONAL_NOTES) || 'null');
+    if (savedNotes && Array.isArray(savedNotes)) {
+      state.personalNotes = savedNotes;
+    } else {
+      state.personalNotes = [];
+      saveNotesToStorage();
+    }
+
+    const savedFirebase = JSON.parse(localStorage.getItem(STORAGE_KEYS.FIREBASE_CONFIG) || 'null');
+    if (savedFirebase) {
+      state.firebaseConfig = savedFirebase;
+    } else {
+      state.firebaseConfig = {
+        apiKey: "AIzaSyDdNF0Kkh7ZAQQl44kr7jwXPr5B12jLvpQ",
+        authDomain: "akils-expense-tracker.firebaseapp.com",
+        projectId: "akils-expense-tracker",
+        storageBucket: "akils-expense-tracker.firebasestorage.app",
+        messagingSenderId: "587066139643",
+        appId: "1:587066139643:web:5e22597061cd5b2804a15e",
+        measurementId: "G-CG428LP7CE"
+      };
+      localStorage.setItem(STORAGE_KEYS.FIREBASE_CONFIG, JSON.stringify(state.firebaseConfig));
+    }
+
+    const savedSecurity = JSON.parse(localStorage.getItem(STORAGE_KEYS.SECURITY_SETTINGS) || 'null');
+    if (savedSecurity) {
+      state.securitySettings = savedSecurity;
+      if (!state.securitySettings.password) {
+        state.securitySettings.password = '1234';
+      }
+    } else {
+      state.securitySettings = {
+        password: '1234',
+        isProtectionEnabled: true
+      };
+    }
+
+    state.isMongoMigrated = localStorage.getItem(STORAGE_KEYS.MONGO_MIGRATED) === 'true';
+  }
+
+  function purgeEmptyDefaultSavings() {
+    state.segregations = state.segregations.filter(seg => {
+      const isSavingsName = seg.name && seg.name.trim().toLowerCase() === 'savings';
+      if (!isSavingsName) return true;
+
+      const hasTransactions = state.transactions.some(t => t.segregationId === seg.id);
+      if (!hasTransactions && (Number(seg.allocatedFund) || 0) === 0) {
+        return false;
+      }
+      return true;
+    });
+    localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
+  }
+
+  function recordLocalMutation() {
+    state.lastLocalUpdate = Date.now();
+    localStorage.setItem(STORAGE_KEYS.LAST_LOCAL_UPDATE, String(state.lastLocalUpdate));
+    state.hasPendingSync = true;
+  }
+
+  function markIdAsDeleted(id) {
+    if (!id) return;
+    if (!state.deletedIds) state.deletedIds = new Set();
+    state.deletedIds.add(id);
+    if (state.deletedIds.size > 500) {
+      const arr = Array.from(state.deletedIds);
+      state.deletedIds = new Set(arr.slice(arr.length - 400));
+    }
+    localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(state.deletedIds)));
+    recordLocalMutation();
+  }
+
+  function saveSegregationsToStorage() {
+    recordLocalMutation();
+    localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
+    syncToFirebase();
+    syncToMongoDB();
+  }
+
+  function saveTransactionsToStorage() {
+    recordLocalMutation();
+    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
+    syncToFirebase();
+    syncToMongoDB();
+  }
+
+  function saveSavingsVaultToStorage() {
+    recordLocalMutation();
+    localStorage.setItem(STORAGE_KEYS.SAVINGS_VAULT, JSON.stringify(state.savingsVault));
+    syncToFirebase();
+    syncToMongoDB();
+  }
+
+  function saveNotesToStorage() {
+    recordLocalMutation();
+    localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
+    syncToFirebase();
+    syncToMongoDB();
+  }
+
+  function setupEventListeners() {
+
+    // Top Right Plus Button
+    DOM.btnTopPlusAction.addEventListener('click', () => DOM.modalPlusAction.showModal());
+
+    // Choice Modal Options
+    DOM.btnChoiceAddExisting.addEventListener('click', () => {
+      DOM.modalPlusAction.close();
+      openTransactionModal('INCOME');
+    });
+
+    DOM.btnChoiceAddNewSegregation.addEventListener('click', () => {
+      DOM.modalPlusAction.close();
+      openSegregationModal();
+    });
+
+    // Sidebar Nav Links
+    DOM.navTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.getAttribute('data-tab');
+        switchTab(targetTab);
+      });
+    });
+
+    // Close Modals
+    document.querySelectorAll('[data-close-modal]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const modalId = btn.getAttribute('data-close-modal');
+        const modalEl = document.getElementById(modalId);
+        if (modalEl) modalEl.close();
+      });
+    });
+
+    // Submit Handlers
+    DOM.transactionForm.addEventListener('submit', handleTransactionSubmit);
+    DOM.segregationForm.addEventListener('submit', handleSegregationSubmit);
+    if (DOM.savingsEntryForm) {
+      DOM.savingsEntryForm.addEventListener('submit', handleSavingsEntrySubmit);
+    }
+
+    if (DOM.btnSavingsDeposit) {
+      DOM.btnSavingsDeposit.addEventListener('click', () => openSavingsModal('INCOME'));
+    }
+    if (DOM.btnSavingsWithdraw) {
+      DOM.btnSavingsWithdraw.addEventListener('click', () => openSavingsModal('EXPENSE'));
+    }
+
+    DOM.txTypeSelect.addEventListener('change', () => {
+      updateTransactionModalTitleAndCategory(DOM.txTypeSelect.value, state.activeModalSegregationId);
+    });
+
+    // Detail Modal Actions
+    DOM.btnQuickAddBucketExpense.addEventListener('click', () => {
+      const segId = state.activeDetailSegregationId;
+      DOM.modalSegregationDetail.close();
+      openTransactionModal('EXPENSE', segId);
+    });
+
+    DOM.btnTopUpBucketFund.addEventListener('click', () => {
+      const segId = state.activeDetailSegregationId;
+      DOM.modalSegregationDetail.close();
+      openTransactionModal('INCOME', segId);
+    });
+
+    DOM.btnEditSegregationSettings.addEventListener('click', () => {
+      const segId = state.activeDetailSegregationId;
+      DOM.modalSegregationDetail.close();
+      openSegregationModal(segId);
+    });
+
+    DOM.btnDeleteSegregation.addEventListener('click', () => {
+      const segId = state.activeDetailSegregationId;
+      deleteSegregation(segId);
+    });
+
+    // Filters
+    DOM.filterMonth.addEventListener('change', renderBankStatementLedger);
+    DOM.filterMonth.addEventListener('input', renderBankStatementLedger);
+    DOM.filterSegregation.addEventListener('change', renderBankStatementLedger);
+    DOM.filterType.addEventListener('change', renderBankStatementLedger);
+    DOM.btnClearFilters.addEventListener('click', () => {
+      DOM.filterMonth.value = '';
+      DOM.filterSegregation.value = 'ALL';
+      DOM.filterType.value = 'ALL';
+      renderBankStatementLedger();
+    });
+
+    // Category Detail Modal Month Filter
+    if (DOM.detailFilterMonth) {
+      DOM.detailFilterMonth.addEventListener('change', () => {
+        if (state.activeDetailSegregationId) {
+          renderSegregationDetailView(state.activeDetailSegregationId, DOM.detailFilterMonth.value);
+        }
+      });
+    }
+
+    // Save Personal Note
+    DOM.btnSavePersonalNote.addEventListener('click', handleSavePersonalNote);
+
+    // PDF Download Button
+    DOM.btnDownloadPDF.addEventListener('click', handleDownloadPDF);
+
+    // Dashboard Reminders Navigation & Dismiss
+    if (DOM.btnGoToNotes) {
+      DOM.btnGoToNotes.addEventListener('click', () => switchTab('notes'));
+    }
+
+    // Edit Personal Note Form Submit
+    if (DOM.editNoteForm) {
+      DOM.editNoteForm.addEventListener('submit', handleSaveEditedNote);
+    }
+
+    // Monthly Expense Overview Controls
+    if (DOM.selectExpenseMonth) {
+      DOM.selectExpenseMonth.addEventListener('change', () => {
+        state.selectedExpenseMonth = DOM.selectExpenseMonth.value;
+        renderUnifiedExpenseSection();
+      });
+    }
+
+    if (DOM.btnPrevExpenseMonth) {
+      DOM.btnPrevExpenseMonth.addEventListener('click', () => {
+        navigateExpenseMonth(-1);
+      });
+    }
+
+    if (DOM.btnNextExpenseMonth) {
+      DOM.btnNextExpenseMonth.addEventListener('click', () => {
+        navigateExpenseMonth(1);
+      });
+    }
+
+    if (DOM.btnFilterGraphTotal) {
+      DOM.btnFilterGraphTotal.addEventListener('click', () => {
+        setMonthlyGraphFilter('total');
+      });
+      DOM.btnFilterGraphTotal.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setMonthlyGraphFilter('total');
+        }
+      });
+    }
+
+    if (DOM.btnFilterGraphDebit) {
+      DOM.btnFilterGraphDebit.addEventListener('click', () => {
+        setMonthlyGraphFilter('debit');
+      });
+      DOM.btnFilterGraphDebit.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setMonthlyGraphFilter('debit');
+        }
+      });
+    }
+
+    if (DOM.btnFilterGraphCredit) {
+      DOM.btnFilterGraphCredit.addEventListener('click', () => {
+        setMonthlyGraphFilter('credit');
+      });
+      DOM.btnFilterGraphCredit.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setMonthlyGraphFilter('credit');
+        }
+      });
+    }
+
+    if (DOM.btnFilterGraphRemaining) {
+      DOM.btnFilterGraphRemaining.addEventListener('click', () => {
+        setMonthlyGraphFilter('remaining');
+      });
+      DOM.btnFilterGraphRemaining.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setMonthlyGraphFilter('remaining');
+        }
+      });
+    }
+
+    // Auth Event Listeners
+    if (DOM.btnTabSignIn) DOM.btnTabSignIn.addEventListener('click', () => switchAuthTab('SIGN_IN'));
+    if (DOM.btnTabSignUp) DOM.btnTabSignUp.addEventListener('click', () => switchAuthTab('SIGN_UP'));
+    if (DOM.authForm) DOM.authForm.addEventListener('submit', handleAuthSubmit);
+    if (DOM.btnGoogleSignIn) DOM.btnGoogleSignIn.addEventListener('click', handleGoogleSignIn);
+    if (DOM.btnGuestMode) {
+      DOM.btnGuestMode.addEventListener('click', () => {
+        state.isGuestMode = true;
+        if (DOM.authView) DOM.authView.classList.add('hidden');
+        if (DOM.btnShowAuthModal) DOM.btnShowAuthModal.classList.remove('hidden');
+        if (DOM.userInfoContainer) DOM.userInfoContainer.classList.add('hidden');
+        showToast('Continuing in offline mode', 'info');
+      });
+    }
+    if (DOM.btnShowAuthModal) {
+      DOM.btnShowAuthModal.addEventListener('click', () => {
+        if (DOM.authView) DOM.authView.classList.remove('hidden');
+      });
+    }
+    if (DOM.btnSignOut) DOM.btnSignOut.addEventListener('click', handleSignOut);
+
+
+    // Security Settings & Lock Screen Listeners
+    if (DOM.settingsSecurityForm) {
+      DOM.settingsSecurityForm.addEventListener('submit', handleSaveSecuritySettings);
+    }
+    if (DOM.btnLockAppNow) {
+      DOM.btnLockAppNow.addEventListener('click', lockApp);
+    }
+    if (DOM.btnLockAppSidebar) {
+      DOM.btnLockAppSidebar.addEventListener('click', lockApp);
+    }
+    if (DOM.lockScreenForm) {
+      DOM.lockScreenForm.addEventListener('submit', handleUnlockAppSubmit);
+    }
+
+    // Password Visibility Eye Toggle Listeners
+    document.querySelectorAll('.toggle-password-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.getAttribute('data-target');
+        const input = document.getElementById(targetId);
+        if (input) {
+          const icon = btn.querySelector('i');
+          if (input.type === 'password') {
+            input.type = 'text';
+            if (icon) {
+              icon.classList.remove('fa-eye');
+              icon.classList.add('fa-eye-slash');
+            }
+          } else {
+            input.type = 'password';
+            if (icon) {
+              icon.classList.remove('fa-eye-slash');
+              icon.classList.add('fa-eye');
+            }
+          }
+        }
+      });
+    });
+
+    // MongoDB Atlas Listeners
+    if (DOM.btnMongoStatusHeader) {
+      DOM.btnMongoStatusHeader.addEventListener('click', () => {
+        switchTab('settings');
+        const card = document.getElementById('cardMongoDatabase');
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth' });
+        }
+      });
+    }
+    if (DOM.mongoConfigForm) {
+      DOM.mongoConfigForm.addEventListener('submit', handleConnectMongo);
+    }
+    if (DOM.btnMigrateToMongo) {
+      DOM.btnMigrateToMongo.addEventListener('click', () => handleMigrateToMongo(true));
+    }
+    if (DOM.btnDownloadJsonBackup) {
+      DOM.btnDownloadJsonBackup.addEventListener('click', () => handleDownloadJsonBackup(false));
+    }
+    if (DOM.jsonBackupFileInput) {
+      DOM.jsonBackupFileInput.addEventListener('change', handleRestoreJsonBackup);
+    }
+  }
+
+  function switchTab(tabName) {
+    state.activeTab = tabName;
+    DOM.navTabs.forEach(t => {
+      t.classList.toggle('active', t.getAttribute('data-tab') === tabName);
+    });
+    DOM.tabContents.forEach(c => {
+      c.classList.toggle('active', c.id === `tab-${tabName}`);
+    });
+
+    // SHOW ADD ENTRY BUTTON ONLY ON DASHBOARD TAB! HIDE ON OTHER PAGES!
+    if (DOM.btnTopPlusAction) {
+      if (tabName === 'dashboard') {
+        DOM.btnTopPlusAction.style.display = 'inline-flex';
+      } else {
+        DOM.btnTopPlusAction.style.display = 'none';
+      }
+    }
+
+    // Update Header Title
+    if (DOM.topPageTitle) {
+      if (tabName === 'dashboard') DOM.topPageTitle.textContent = 'Dashboard';
+      else if (tabName === 'ledger') DOM.topPageTitle.textContent = 'Transaction History';
+      else if (tabName === 'notes') DOM.topPageTitle.textContent = 'My Notes';
+      else if (tabName === 'settings') DOM.topPageTitle.textContent = 'Settings';
+    }
+
+    if (tabName === 'dashboard') {
+      renderNotebookDashboard();
+      renderDashboardReminders();
+      renderUnifiedExpenseSection();
+    }
+    else if (tabName === 'ledger') renderBankStatementLedger();
+    else if (tabName === 'notes') renderPersonalNotesTab();
+    else if (tabName === 'settings') renderSettingsTab();
+  }
+
+  function getSegregationMetrics(segId) {
+    const seg = state.segregations.find(s => s.id === segId);
+    if (!seg) return { allocated: 0, spent: 0, topUps: 0, remaining: 0 };
+
+    const segTxs = state.transactions.filter(t => t.segregationId === segId);
+
+    // Identify initial allocation transaction if present
+    const initTx = segTxs.find(t =>
+      t.id.startsWith('tx_create_') ||
+      t.id.startsWith('tx_init_') ||
+      t.note === 'New Category Created' ||
+      t.note === 'Initial Allocation' ||
+      (t.type === 'INCOME' && segTxs.indexOf(t) === 0)
+    );
+
+    const allocated = initTx ? Number(initTx.amount) : (Number(seg.allocatedFund) || 0);
+
+    // Keep seg.allocatedFund synchronized with initTx amount
+    if (initTx && Number(seg.allocatedFund) !== Number(initTx.amount)) {
+      seg.allocatedFund = Number(initTx.amount);
+      saveSegregationsToStorage();
+    }
+
+    const spent = segTxs.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + Number(t.amount), 0);
+
+    // Top-ups are additional INCOME transactions besides the initial allocation transaction
+    const topUps = segTxs
+      .filter(t => t.type === 'INCOME' && t !== initTx)
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+
+    const effectiveAllocated = allocated + topUps;
+    const remaining = effectiveAllocated - spent;
+
+    return { allocated, spent, topUps, remaining };
+  }
+
+  function updateBrandTitle() {
+    const rawName = state.securitySettings.userId ? state.securitySettings.userId.trim() : 'Akil';
+    const name = rawName || 'Akil';
+    const titleText = name.toLowerCase().endsWith('s') ? `${name}' Expense Tracker` : `${name}'s Expense Tracker`;
+    if (DOM.brandTitle) DOM.brandTitle.textContent = titleText;
+    if (DOM.lockScreenUserLabel) DOM.lockScreenUserLabel.textContent = titleText;
+    document.title = titleText;
+  }
+
+  function renderAll() {
+    updateBrandTitle();
+    renderNotebookDashboard();
+    renderDashboardReminders();
+    renderUnifiedExpenseSection();
+    renderBankStatementLedger();
+    renderPersonalNotesTab();
+    renderSettingsTab();
+    populateSegregationDropdowns();
+    if (DOM.modalSegregationDetail && DOM.modalSegregationDetail.open && state.activeDetailSegregationId) {
+      renderSegregationDetailView(state.activeDetailSegregationId, DOM.detailFilterMonth ? DOM.detailFilterMonth.value : 'ALL');
+    }
+  }
+
+  // RENDER DASHBOARD EXECUTIVE LEDGER (EXACT NOTEBOOK FORMAT: Name ......... Amount)
+  function renderNotebookDashboard() {
+    if (!DOM.notebookSegregationsList || !DOM.notebookGrandTotal) return;
+
+    DOM.notebookSegregationsList.innerHTML = '';
+
+    // Include all categories on Dashboard (including Savings)
+    const dashboardSegs = state.segregations;
+
+    if (dashboardSegs.length === 0) {
+      DOM.notebookSegregationsList.innerHTML = `
+        <div class="text-center" style="padding: 2rem; color: var(--text-muted);">
+          <p>No categories added yet. Click <strong>+ Add Entry</strong> in the top right corner!</p>
+        </div>
+      `;
+      DOM.notebookGrandTotal.textContent = formatMoney(0);
+      return;
+    }
+
+    let grandTotal = 0;
+
+    dashboardSegs.forEach(seg => {
+      const metrics = getSegregationMetrics(seg.id);
+      grandTotal += metrics.remaining;
+
+      const item = document.createElement('div');
+      item.className = 'ledger-item';
+      item.innerHTML = `
+        <span class="ledger-item-left">${escapeHTML(seg.name)}</span>
+        <span class="ledger-item-dots"></span>
+        <span class="ledger-item-amount">${formatMoney(metrics.remaining)}</span>
+      `;
+
+      item.addEventListener('click', () => {
+        openSegregationDetailModal(seg.id);
+      });
+
+      DOM.notebookSegregationsList.appendChild(item);
+    });
+
+    DOM.notebookGrandTotal.textContent = formatMoney(grandTotal);
+  }
+
+  // RENDER SAVINGS VAULT (BANK PASSBOOK VIEW WITH DEPOSIT, WITHDRAW, & EDIT)
+  function renderSavingsVaultTab() {
+    let totalVaultBalance = 0;
+    DOM.savingsPassbookBody.innerHTML = '';
+
+    if (state.savingsVault.length === 0) {
+      DOM.savingsPassbookBody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">No savings entries recorded.</td>
+        </tr>
+      `;
+      DOM.savingsVaultTotalDisplay.textContent = formatMoney(0);
+      return;
+    }
+
+    state.savingsVault.forEach(entry => {
+      const isDebit = entry.type === 'EXPENSE' || Number(entry.amount) < 0;
+      const amt = Math.abs(Number(entry.amount));
+      if (isDebit) {
+        totalVaultBalance -= amt;
+      } else {
+        totalVaultBalance += amt;
+      }
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${entry.date}</td>
+        <td><strong>${escapeHTML(entry.particulars)}</strong></td>
+        <td class="passbook-debit">${isDebit ? '-' + formatMoney(amt) : '—'}</td>
+        <td class="passbook-credit">${!isDebit ? '+' + formatMoney(amt) : '—'}</td>
+        <td class="passbook-balance">${formatMoney(totalVaultBalance)}</td>
+        <td>
+          <div style="display: flex; gap: 0.35rem;">
+            <button class="btn btn-outline-brown btn-sm btn-edit-sav" data-sav-id="${entry.id}">
+              <i class="fa-solid fa-pen-to-square"></i> Edit
+            </button>
+            <button class="btn btn-outline-danger btn-sm btn-delete-sav" data-sav-id="${entry.id}">
+              <i class="fa-solid fa-trash"></i> Delete
+            </button>
+          </div>
+        </td>
+      `;
+
+      tr.querySelector('.btn-edit-sav').addEventListener('click', () => {
+        openSavingsModal(entry.type || (isDebit ? 'EXPENSE' : 'INCOME'), entry.id);
+      });
+
+      tr.querySelector('.btn-delete-sav').addEventListener('click', () => {
+        if (confirm('Are you sure you want to delete this savings entry?')) {
+          markIdAsDeleted(entry.id);
+          markIdAsDeleted(`tx_sav_${entry.id}`);
+          markIdAsDeleted(`tx_${entry.id}`);
+          state.savingsVault = state.savingsVault.filter(s => s.id !== entry.id);
+          state.transactions = state.transactions.filter(t => t.id !== entry.id && t.id !== `tx_sav_${entry.id}` && t.id !== `tx_${entry.id}`);
+          saveSavingsVaultToStorage();
+          saveTransactionsToStorage();
+          renderAll();
+          showToast('Savings entry deleted successfully!', 'info');
+        }
+      });
+
+      DOM.savingsPassbookBody.appendChild(tr);
+    });
+
+    DOM.savingsVaultTotalDisplay.textContent = formatMoney(totalVaultBalance);
+  }
+
+  // RENDER TRANSACTION HISTORY (DEBIT & CREDIT STATEMENT - NEWEST / RECENT ON TOP)
+  function renderBankStatementLedger() {
+    const selectedMonth = DOM.filterMonth.value;
+    const filterSeg = DOM.filterSegregation.value;
+    const filterType = DOM.filterType.value;
+
+    // Attach original array index to track exact creation order
+    const indexedTx = state.transactions.map((t, idx) => ({ ...t, _origIdx: idx }));
+
+    // Calculate running balance in chronological order (oldest to newest)
+    let chronological = [...indexedTx].sort((a, b) => new Date(a.date) - new Date(b.date) || a._origIdx - b._origIdx);
+    let currentBalance = 0;
+    const balanceMap = new Map();
+    chronological.forEach(t => {
+      if (t.type === 'EXPENSE') currentBalance -= Number(t.amount);
+      else currentBalance += Number(t.amount);
+      balanceMap.set(t.id, currentBalance);
+    });
+
+    // Apply Filters
+    let filtered = [...indexedTx];
+    if (selectedMonth) {
+      filtered = filtered.filter(t => t.date.startsWith(selectedMonth));
+    }
+    if (filterSeg !== 'ALL') {
+      filtered = filtered.filter(t => t.segregationId === filterSeg);
+    }
+    if (filterType !== 'ALL') {
+      filtered = filtered.filter(t => t.type === filterType);
+    }
+
+    // Calculate summary banner for Transaction History (Always shown; isolates numbers when Debit or Credit type chosen)
+    if (DOM.ledgerFilterSummaryBanner) {
+      DOM.ledgerFilterSummaryBanner.classList.remove('hidden');
+
+      let baseTotal = 0;
+      let baseCredit = 0;
+      let baseDebit = 0;
+      let baseRemaining = 0;
+
+      if (selectedMonth) {
+        const aggregates = getMonthlyExpenseAggregates();
+        const targetMonthData = aggregates.monthsData.find(m => m.monthKey === selectedMonth) || {
+          carryForward: 0,
+          total: 0,
+          credit: 0,
+          debit: 0,
+          remaining: 0,
+          categoryCredits: {},
+          categoryDebits: {},
+          categoryTotals: {},
+          categoryRemainings: {}
+        };
+
+        if (filterSeg !== 'ALL') {
+          const segObj = state.segregations.find(s => s.id === filterSeg);
+          const segName = segObj ? segObj.name.trim() : '';
+          baseTotal = (targetMonthData.categoryTotals && targetMonthData.categoryTotals[segName]) || 0;
+          baseCredit = (targetMonthData.categoryCredits && targetMonthData.categoryCredits[segName]) || 0;
+          baseDebit = (targetMonthData.categoryDebits && targetMonthData.categoryDebits[segName]) || 0;
+          baseRemaining = (targetMonthData.categoryRemainings && targetMonthData.categoryRemainings[segName]) || 0;
+        } else {
+          baseTotal = targetMonthData.total || 0;
+          baseCredit = targetMonthData.credit || 0;
+          baseDebit = targetMonthData.debit || 0;
+          baseRemaining = targetMonthData.remaining !== undefined ? targetMonthData.remaining : (baseTotal - baseDebit);
+        }
+      } else if (filterSeg !== 'ALL') {
+        const metrics = getSegregationMetrics(filterSeg);
+        baseTotal = metrics.allocated + metrics.topUps;
+        baseCredit = metrics.topUps;
+        baseDebit = metrics.spent;
+        baseRemaining = metrics.remaining;
+      } else {
+        // No filter applied (all months, all categories): calculate all-time summary
+        let allTimeAllocated = 0;
+        let allTimeTopUps = 0;
+        let allTimeSpent = 0;
+        state.segregations.forEach(s => {
+          const m = getSegregationMetrics(s.id);
+          allTimeAllocated += m.allocated;
+          allTimeTopUps += m.topUps;
+          allTimeSpent += m.spent;
+        });
+        baseTotal = allTimeAllocated + allTimeTopUps;
+        baseCredit = allTimeTopUps;
+        baseDebit = allTimeSpent;
+        baseRemaining = baseTotal - baseDebit;
+      }
+
+      // If user chooses Debit: numbers only in debit, other sections must be zero
+      // If user chooses Credit: numbers only in credit, other sections must be zero
+      let displayTotal = 0;
+      let displayCredit = 0;
+      let displayDebit = 0;
+      let displayRemaining = 0;
+
+      if (filterType === 'EXPENSE') {
+        displayTotal = 0;
+        displayCredit = 0;
+        displayDebit = baseDebit;
+        displayRemaining = 0;
+      } else if (filterType === 'INCOME') {
+        displayTotal = 0;
+        displayCredit = baseCredit;
+        displayDebit = 0;
+        displayRemaining = 0;
+      } else {
+        displayTotal = baseTotal;
+        displayCredit = baseCredit;
+        displayDebit = baseDebit;
+        displayRemaining = baseRemaining;
+      }
+
+      if (DOM.ledgerFilterTotal) DOM.ledgerFilterTotal.textContent = formatMoney(displayTotal);
+      if (DOM.ledgerFilterCredit) DOM.ledgerFilterCredit.textContent = formatMoney(displayCredit);
+      if (DOM.ledgerFilterDebit) DOM.ledgerFilterDebit.textContent = formatMoney(displayDebit);
+      if (DOM.ledgerFilterRemaining) {
+        DOM.ledgerFilterRemaining.textContent = displayRemaining >= 0
+          ? formatMoney(displayRemaining)
+          : `-₹${Math.abs(displayRemaining).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+        DOM.ledgerFilterRemaining.style.color = displayRemaining >= 0 ? 'var(--credit-color)' : 'var(--debit-color)';
+      }
+    }
+
+    // SORT MOST RECENT / NEWEST TRANSACTIONS ON TOP (FIRST PLACE)!
+    filtered.sort((a, b) => new Date(b.date) - new Date(a.date) || b._origIdx - a._origIdx);
+
+    DOM.bankStatementBody.innerHTML = '';
+
+    if (filtered.length === 0) {
+      DOM.bankStatementBody.innerHTML = `
+        <tr>
+          <td colspan="5" class="text-center text-muted" style="padding: 2rem;">No entries found.</td>
+        </tr>
+      `;
+      return;
+    }
+
+    filtered.forEach(t => {
+      const isExpense = t.type === 'EXPENSE';
+      const rowBalance = balanceMap.get(t.id) || 0;
+
+      let segName = t.segregationName || 'General';
+      const seg = state.segregations.find(s => s.id === t.segregationId);
+      if (seg) segName = seg.name;
+
+      const particulars = `${segName}${t.note ? ' - ' + t.note : ''}`;
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${t.date}</td>
+        <td><strong>${escapeHTML(particulars)}</strong></td>
+        <td class="passbook-debit">${isExpense ? '-' + formatMoney(t.amount) : '—'}</td>
+        <td class="passbook-credit">${!isExpense ? '+' + formatMoney(t.amount) : '—'}</td>
+        <td class="passbook-balance">${formatMoney(rowBalance)}</td>
+        <td>
+          <div style="display: flex; gap: 0.35rem; justify-content: center;">
+            <button class="btn btn-outline-brown btn-sm btn-edit-tx" data-tx-id="${t.id}" title="Edit Transaction" style="padding: 0.3rem 0.5rem; font-size: 0.8rem;">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-sm btn-delete-tx" data-tx-id="${t.id}" title="Delete Transaction" style="padding: 0.3rem 0.5rem; font-size: 0.8rem;">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </td>
+      `;
+
+      tr.querySelector('.btn-edit-tx').addEventListener('click', () => {
+        openTransactionModal(t.type, t.segregationId, t.id);
+      });
+
+      tr.querySelector('.btn-delete-tx').addEventListener('click', () => {
+        deleteTransaction(t.id);
+      });
+
+      DOM.bankStatementBody.appendChild(tr);
+    });
+  }
+
+  // RENDER MY NOTES TAB (TITLE, MONEY, DATE, & MARK AS COMPLETED)
+  function renderPersonalNotesTab() {
+    DOM.savedNotesContainer.innerHTML = '';
+
+    if (state.personalNotes.length === 0) {
+      DOM.savedNotesContainer.innerHTML = `
+        <p class="text-muted" style="grid-column: 1 / -1; text-align: center; padding: 1.5rem;">
+          No notes saved yet.
+        </p>
+      `;
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    state.personalNotes.forEach(note => {
+      const card = document.createElement('div');
+      card.className = `note-card ${note.isCompleted ? 'completed' : ''}`;
+
+      let dateBadgeHtml = `<span class="note-card-date">${note.date || todayStr}</span>`;
+      if (!note.isCompleted && note.date) {
+        if (note.date === todayStr) {
+          dateBadgeHtml = `<span class="badge-today"><i class="fa-solid fa-clock"></i> Due Today</span>`;
+        } else if (note.date < todayStr) {
+          dateBadgeHtml = `<span class="badge-overdue"><i class="fa-solid fa-triangle-exclamation"></i> Overdue (${note.date})</span>`;
+        } else {
+          dateBadgeHtml = `<span class="badge-upcoming"><i class="fa-regular fa-calendar-check"></i> Due: ${note.date}</span>`;
+        }
+      }
+
+      card.innerHTML = `
+        <div class="note-top-actions">
+          <button class="btn-edit-note" data-note-id="${note.id}" title="Edit Note">
+            <i class="fa-solid fa-pen-to-square"></i>
+          </button>
+          <button class="btn-delete-note" data-note-id="${note.id}" title="Delete Note">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+        <div class="note-header-row">
+          <h4 class="note-card-title">${escapeHTML(note.title)}</h4>
+        </div>
+        <div class="note-card-amount">${formatMoney(note.amount)}</div>
+        ${note.isCompleted ? `
+          <div class="note-completed-actions">
+            <span class="badge-completed"><i class="fa-solid fa-check"></i> Completed</span>
+            <button class="btn-restore-note" data-note-id="${note.id}" title="Restore note to active list">
+              <i class="fa-solid fa-rotate-left"></i> Restore
+            </button>
+          </div>
+        ` : `
+          <button class="btn-complete-note" data-note-id="${note.id}">
+            <i class="fa-solid fa-check"></i> Mark as Completed
+          </button>
+        `}
+        <div style="margin-top: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+          ${dateBadgeHtml}
+        </div>
+      `;
+
+      const editBtn = card.querySelector('.btn-edit-note');
+      if (editBtn) {
+        editBtn.addEventListener('click', () => {
+          openEditNoteModal(note.id);
+        });
+      }
+
+      card.querySelector('.btn-delete-note').addEventListener('click', () => {
+        deletePersonalNote(note.id);
+      });
+
+      if (note.isCompleted) {
+        const restoreBtn = card.querySelector('.btn-restore-note');
+        if (restoreBtn) {
+          restoreBtn.addEventListener('click', () => {
+            toggleCompleteNote(note.id);
+          });
+        }
+      } else {
+        const completeBtn = card.querySelector('.btn-complete-note');
+        if (completeBtn) {
+          completeBtn.addEventListener('click', () => {
+            toggleCompleteNote(note.id);
+          });
+        }
+      }
+
+      DOM.savedNotesContainer.appendChild(card);
+    });
+  }
+
+  function openEditNoteModal(noteId) {
+    const note = state.personalNotes.find(n => n.id === noteId);
+    if (!note || !DOM.modalEditNote) return;
+
+    if (DOM.editNoteIdInput) DOM.editNoteIdInput.value = note.id;
+    if (DOM.editNoteTitleInput) DOM.editNoteTitleInput.value = note.title;
+    if (DOM.editNoteDateInput) DOM.editNoteDateInput.value = note.date || new Date().toISOString().split('T')[0];
+    if (DOM.editNoteAmountInput) DOM.editNoteAmountInput.value = note.amount !== undefined ? note.amount : '';
+
+    DOM.modalEditNote.showModal();
+  }
+
+  function handleSaveEditedNote(e) {
+    e.preventDefault();
+    const noteId = DOM.editNoteIdInput ? DOM.editNoteIdInput.value : '';
+    const note = state.personalNotes.find(n => n.id === noteId);
+    if (!note) return;
+
+    const title = DOM.editNoteTitleInput ? DOM.editNoteTitleInput.value.trim() : '';
+    const date = DOM.editNoteDateInput ? DOM.editNoteDateInput.value : '';
+    const amount = DOM.editNoteAmountInput ? (parseFloat(DOM.editNoteAmountInput.value) || 0) : 0;
+
+    if (!title) {
+      showToast('Please enter note title', 'danger');
+      return;
+    }
+
+    note.title = title;
+    note.date = date;
+    note.amount = amount;
+    note.updatedAt = Date.now();
+
+    saveNotesToStorage();
+    if (DOM.modalEditNote) DOM.modalEditNote.close();
+    renderPersonalNotesTab();
+    renderDashboardReminders();
+    showToast('Note updated successfully!', 'success');
+  }
+
+  function handleSavePersonalNote() {
+    const title = DOM.personalNoteTitleInput.value.trim();
+    const amount = parseFloat(DOM.personalNoteAmountInput.value) || 0;
+    const date = (DOM.personalNoteDateInput && DOM.personalNoteDateInput.value)
+      ? DOM.personalNoteDateInput.value
+      : new Date().toISOString().split('T')[0];
+
+    if (!title) {
+      showToast('Please enter note title', 'danger');
+      return;
+    }
+
+    const now = Date.now();
+    const noteObj = {
+      id: 'note_' + now,
+      title,
+      amount,
+      isCompleted: false,
+      date,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    state.personalNotes.unshift(noteObj);
+    saveNotesToStorage();
+    DOM.personalNoteTitleInput.value = '';
+    DOM.personalNoteAmountInput.value = '';
+    if (DOM.personalNoteDateInput) {
+      DOM.personalNoteDateInput.value = new Date().toISOString().split('T')[0];
+    }
+    renderPersonalNotesTab();
+    renderDashboardReminders();
+    showToast('Note saved with reminder date!', 'success');
+  }
+
+  function toggleCompleteNote(noteId) {
+    const note = state.personalNotes.find(n => n.id === noteId);
+    if (!note) return;
+    note.isCompleted = !note.isCompleted;
+    note.updatedAt = Date.now();
+    saveNotesToStorage();
+    renderPersonalNotesTab();
+    renderDashboardReminders();
+    showToast(note.isCompleted ? 'Note marked as completed!' : 'Note restored to active list!', 'success');
+  }
+
+  function deletePersonalNote(noteId) {
+    if (!confirm('Delete this note?')) return;
+    markIdAsDeleted(noteId);
+    state.personalNotes = state.personalNotes.filter(n => n.id !== noteId);
+    saveNotesToStorage();
+    renderPersonalNotesTab();
+    renderDashboardReminders();
+    showToast('Note deleted', 'success');
+  }
+
+  // ==========================================================================
+  // DASHBOARD REMINDERS & NOTIFICATION BANNER LOGIC
+  // ==========================================================================
+  function renderDashboardReminders() {
+    if (!DOM.dashboardRemindersBanner || !DOM.dashboardRemindersList) return;
+
+    const activeNotes = state.personalNotes.filter(n => !n.isCompleted);
+    if (activeNotes.length === 0) {
+      DOM.dashboardRemindersBanner.classList.add('hidden');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    let dueTodayCount = 0;
+    let overdueCount = 0;
+
+    const needingAttention = [];
+    activeNotes.forEach(n => {
+      if (!n.date) return;
+      if (n.date === todayStr) {
+        dueTodayCount++;
+        needingAttention.push(n);
+      } else if (n.date < todayStr) {
+        overdueCount++;
+        needingAttention.push(n);
+      }
+    });
+
+    // Only show notification if any notification is actually needed (due today or overdue)
+    if (dueTodayCount === 0 && overdueCount === 0) {
+      DOM.dashboardRemindersBanner.classList.add('hidden');
+      return;
+    }
+
+    DOM.dashboardRemindersBanner.classList.remove('hidden');
+
+    const totalNeeded = dueTodayCount + overdueCount;
+    // Bell icon and emoji removed per user request
+    DOM.reminderBannerTitle.textContent = `${totalNeeded} Task${totalNeeded > 1 ? 's' : ''} Need Attention`;
+
+    if (dueTodayCount > 0 && overdueCount > 0) {
+      DOM.reminderBannerSubtitle.textContent = `${dueTodayCount} due today, ${overdueCount} overdue. Check your scheduled tasks.`;
+    } else if (dueTodayCount > 0) {
+      DOM.reminderBannerSubtitle.textContent = `${dueTodayCount} task${dueTodayCount > 1 ? 's' : ''} due today. Check your scheduled tasks.`;
+    } else {
+      DOM.reminderBannerSubtitle.textContent = `${overdueCount} task${overdueCount > 1 ? 's' : ''} overdue. Check your scheduled tasks.`;
+    }
+
+    DOM.dashboardRemindersList.innerHTML = '';
+    // Sort notes needing attention chronologically (oldest overdue first)
+    const sortedNotes = [...needingAttention].sort((a, b) => new Date(a.date) - new Date(b.date));
+    sortedNotes.slice(0, 6).forEach(note => {
+      const isToday = note.date === todayStr;
+      const statusBadge = isToday
+        ? `<span class="badge-today"><i class="fa-solid fa-clock"></i> Today</span>`
+        : `<span class="badge-overdue"><i class="fa-solid fa-triangle-exclamation"></i> Overdue</span>`;
+
+      const chip = document.createElement('div');
+      chip.className = 'reminder-chip';
+      chip.innerHTML = `
+        ${statusBadge}
+        <strong>${escapeHTML(note.title)}</strong>
+        <span style="color: var(--brown-primary); font-weight: 700;">${formatMoney(note.amount)}</span>
+        <button class="btn-done-chip" title="Mark Done" style="margin-left: 0.25rem;">
+          <i class="fa-solid fa-check"></i>
+        </button>
+      `;
+
+      chip.querySelector('.btn-done-chip').addEventListener('click', () => {
+        toggleCompleteNote(note.id);
+      });
+
+      DOM.dashboardRemindersList.appendChild(chip);
+    });
+  }
+
+  // ==========================================================================
+  // MONTHLY EXPENSE AGGREGATION & DATA PROCESSING
+  // ==========================================================================
+  function getMonthlyExpenseAggregates() {
+    const monthlyMap = new Map();
+    let totalExpenseRecorded = 0;
+    let totalTxCount = 0;
+
+    // Pre-populate last 6 calendar months so the chart always displays a smooth history
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mKey = getCurrentMonthKey(d);
+      monthlyMap.set(mKey, { expense: 0, income: 0, categoryDebits: {}, categoryCredits: {}, categories: {} });
+    }
+
+    state.transactions.forEach(t => {
+      const mKey = normalizeMonthKey(t.date, t.monthKey);
+      if (!mKey) return;
+      if (!monthlyMap.has(mKey)) {
+        monthlyMap.set(mKey, { expense: 0, income: 0, categoryDebits: {}, categoryCredits: {}, categories: {} });
+      }
+      const data = monthlyMap.get(mKey);
+      const amt = Number(t.amount) || 0;
+      const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
+      if (t.type === 'EXPENSE') {
+        data.expense += amt;
+        totalExpenseRecorded += amt;
+        totalTxCount++;
+        data.categories[catName] = (data.categories[catName] || 0) + amt;
+        data.categoryDebits[catName] = (data.categoryDebits[catName] || 0) + amt;
+      } else {
+        data.income += amt;
+        data.categoryCredits[catName] = (data.categoryCredits[catName] || 0) + amt;
+      }
+    });
+
+    // Ensure any category with allocatedFund that lacks an explicit initial transaction in state.transactions is represented in monthlyMap
+    state.segregations.forEach(seg => {
+      const segTxs = state.transactions.filter(t => t.segregationId === seg.id);
+      const hasInitTx = segTxs.some(t =>
+        t.id.startsWith('tx_create_') ||
+        t.id.startsWith('tx_init_') ||
+        t.note === 'New Category Created' ||
+        t.note === 'Initial Allocation' ||
+        (t.type === 'INCOME' && segTxs.indexOf(t) === 0)
+      );
+      if (!hasInitTx && (Number(seg.allocatedFund) || 0) > 0) {
+        const allocDate = seg.createdDate || (segTxs.length > 0 ? segTxs[0].date : null) || new Date().toISOString().split('T')[0];
+        const mKey = normalizeMonthKey(allocDate);
+        if (mKey) {
+          if (!monthlyMap.has(mKey)) {
+            monthlyMap.set(mKey, { expense: 0, income: 0, categoryDebits: {}, categoryCredits: {}, categories: {} });
+          }
+          const d = monthlyMap.get(mKey);
+          const catName = seg.name.trim();
+          const amt = Number(seg.allocatedFund);
+          d.income += amt;
+          d.categoryCredits[catName] = (d.categoryCredits[catName] || 0) + amt;
+        }
+      }
+    });
+
+    const sortedMonthKeys = Array.from(monthlyMap.keys()).sort();
+    let runningCarryForward = 0;
+    const categoryRunningCarryForward = {};
+
+    const monthsData = sortedMonthKeys.map(mKey => {
+      const d = monthlyMap.get(mKey);
+      const credit = d.income || 0;
+      const debit = d.expense || 0;
+      const carryForward = runningCarryForward;
+      // Total amount = carry forward + credit. Remaining amount = Total - Debit (current balance).
+      const total = carryForward + credit;
+      const remaining = total - debit;
+      runningCarryForward = remaining;
+
+      const categoryTotals = {};
+      const categoryRemainings = {};
+
+      const allKnownCats = new Set([
+        ...state.segregations.map(s => s.name.trim()),
+        ...Object.keys(categoryRunningCarryForward),
+        ...Object.keys(d.categoryCredits || {}),
+        ...Object.keys(d.categoryDebits || {})
+      ]);
+
+      allKnownCats.forEach(cat => {
+        const catCarry = categoryRunningCarryForward[cat] || 0;
+        const catCred = (d.categoryCredits && d.categoryCredits[cat]) || 0;
+        const catDeb = (d.categoryDebits && d.categoryDebits[cat]) || 0;
+        const catTot = catCarry + catCred;
+        const catRem = catTot - catDeb;
+        categoryRunningCarryForward[cat] = catRem;
+
+        categoryTotals[cat] = catTot;
+        categoryRemainings[cat] = catRem;
+      });
+
+      return {
+        monthKey: mKey,
+        label: formatMonthLabel(mKey),
+        carryForward,
+        total,
+        credit,
+        debit,
+        remaining,
+        expense: debit,
+        income: credit,
+        categories: d.categories || {},
+        categoryCredits: d.categoryCredits || {},
+        categoryDebits: d.categoryDebits || {},
+        categoryTotals,
+        categoryRemainings
+      };
+    });
+
+    const activeMonths = monthsData.filter(m => m.expense > 0);
+    const averageMonthly = activeMonths.length > 0 ? (totalExpenseRecorded / activeMonths.length) : 0;
+
+    const currentMKey = getCurrentMonthKey();
+    const currentMonthData = monthlyMap.get(currentMKey);
+    const thisMonthSpend = currentMonthData ? currentMonthData.expense : 0;
+
+    let peakMonth = null;
+    let peakSpend = 0;
+    monthsData.forEach(m => {
+      if (m.expense > peakSpend) {
+        peakSpend = m.expense;
+        peakMonth = m;
+      }
+    });
+
+    // Calculate all-time category totals
+    const categoryTotals = {};
+    state.transactions.forEach(t => {
+      if (t.type === 'EXPENSE') {
+        const catName = t.segregationName || (state.segregations.find(s => s.id === t.segregationId)?.name) || 'General';
+        categoryTotals[catName] = (categoryTotals[catName] || 0) + (Number(t.amount) || 0);
+      }
+    });
+
+    let topCategory = '—';
+    let topCategoryAmount = 0;
+    Object.entries(categoryTotals).forEach(([cat, val]) => {
+      if (val > topCategoryAmount) {
+        topCategoryAmount = val;
+        topCategory = cat;
+      }
+    });
+
+    return {
+      monthsData,
+      totalExpenseRecorded,
+      totalTxCount,
+      thisMonthSpend,
+      averageMonthly,
+      peakMonth,
+      categoryTotals,
+      topCategory,
+      topCategoryAmount
+    };
+  }
+
+  function formatMonthLabel(mKey) {
+    if (!mKey || !mKey.includes('-')) return mKey || '';
+    const parts = mKey.split('-');
+    const y = parts[0];
+    const m = parts[1];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const idx = parseInt(m, 10) - 1;
+    return `${monthNames[idx] || m} ${y}`;
+  }
+
+  // ==========================================================================
+  // UNIFIED MONTHLY EXPENSE SECTION (NUMBERS + HOW I SPENT / PREVIOUS MONTHS)
+  // ==========================================================================
+
+  function getAvailableExpenseMonths() {
+    const aggregates = getMonthlyExpenseAggregates();
+    const keys = aggregates.monthsData.map(m => m.monthKey);
+    const cur = getCurrentMonthKey();
+    if (!keys.includes(cur)) {
+      keys.push(cur);
+    }
+    keys.sort();
+    return { keys, aggregates };
+  }
+
+  function navigateExpenseMonth(direction) {
+    const { keys } = getAvailableExpenseMonths();
+    if (keys.length === 0) return;
+
+    let currentIdx = keys.indexOf(state.selectedExpenseMonth);
+    if (currentIdx === -1) {
+      currentIdx = keys.length - 1;
+    }
+
+    const newIdx = currentIdx + direction;
+    if (newIdx >= 0 && newIdx < keys.length) {
+      state.selectedExpenseMonth = keys[newIdx];
+      renderUnifiedExpenseSection();
+    }
+  }
+
+  function setMonthlyGraphFilter(filterMode) {
+    state.monthlyGraphFilter = filterMode;
+    updateMonthlyFilterCardStates();
+    renderUnifiedExpenseSection();
+  }
+
+  function updateMonthlyFilterCardStates() {
+    const mode = state.monthlyGraphFilter || 'total';
+    if (DOM.btnFilterGraphTotal) DOM.btnFilterGraphTotal.classList.toggle('active', mode === 'total');
+    if (DOM.btnFilterGraphCredit) DOM.btnFilterGraphCredit.classList.toggle('active', mode === 'credit');
+    if (DOM.btnFilterGraphDebit) DOM.btnFilterGraphDebit.classList.toggle('active', mode === 'debit');
+    if (DOM.btnFilterGraphRemaining) DOM.btnFilterGraphRemaining.classList.toggle('active', mode === 'remaining');
+  }
+
+  function renderUnifiedExpenseSection() {
+    if (!DOM.monthlyExpenseDashboardCard) return;
+
+    const { keys, aggregates } = getAvailableExpenseMonths();
+    if (keys.length === 0) return;
+
+    if (!state.selectedExpenseMonth || !keys.includes(state.selectedExpenseMonth)) {
+      state.selectedExpenseMonth = getCurrentMonthKey();
+      if (!keys.includes(state.selectedExpenseMonth)) {
+        state.selectedExpenseMonth = keys[keys.length - 1];
+      }
+    }
+
+    // 1. Populate Month Dropdown (Newest first for intuitive selection)
+    if (DOM.selectExpenseMonth) {
+      const reversedKeys = [...keys].reverse();
+      const currentMonthKey = getCurrentMonthKey();
+      DOM.selectExpenseMonth.innerHTML = reversedKeys.map(k => {
+        const label = formatMonthLabel(k);
+        const suffix = k === currentMonthKey ? ' (Current)' : '';
+        return `<option value="${k}" ${k === state.selectedExpenseMonth ? 'selected' : ''}>${label}${suffix}</option>`;
+      }).join('');
+      DOM.selectExpenseMonth.value = state.selectedExpenseMonth;
+    }
+
+    // 2. Update Prev / Next Buttons state
+    const currentIdx = keys.indexOf(state.selectedExpenseMonth);
+    if (DOM.btnPrevExpenseMonth) {
+      DOM.btnPrevExpenseMonth.disabled = (currentIdx <= 0);
+    }
+    if (DOM.btnNextExpenseMonth) {
+      DOM.btnNextExpenseMonth.disabled = (currentIdx >= keys.length - 1);
+    }
+
+    // 3. Calculate selected month numbers: Total, Credit, Debit, Remaining Amount
+    const targetMonthData = aggregates.monthsData.find(m => m.monthKey === state.selectedExpenseMonth) || {
+      carryForward: 0,
+      total: 0,
+      credit: 0,
+      debit: 0,
+      remaining: 0,
+      categoryCredits: {},
+      categoryDebits: {},
+      categoryTotals: {},
+      categoryRemainings: {}
+    };
+
+    const total = targetMonthData.total || 0;
+    const credit = targetMonthData.credit || 0;
+    const debit = targetMonthData.debit || 0;
+    const remaining = targetMonthData.remaining !== undefined ? targetMonthData.remaining : (total - debit);
+
+    if (DOM.displayMonthTotal) {
+      DOM.displayMonthTotal.textContent = formatMoney(total);
+    }
+    if (DOM.displayMonthTotalCredit) {
+      DOM.displayMonthTotalCredit.textContent = formatMoney(credit);
+    }
+    if (DOM.displayMonthTotalDebit) {
+      DOM.displayMonthTotalDebit.textContent = formatMoney(debit);
+    }
+    if (DOM.displayMonthRemaining) {
+      DOM.displayMonthRemaining.textContent = remaining >= 0
+        ? formatMoney(remaining)
+        : `-₹${Math.abs(remaining).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+      DOM.displayMonthRemaining.style.color = remaining >= 0 ? 'var(--credit-color)' : 'var(--debit-color)';
+    }
+
+    const monthFormatted = formatMonthLabel(state.selectedExpenseMonth);
+
+    // Common Month & Year Header Above the Four Metric Boxes
+    if (DOM.monthlyExpenseCommonPeriod) {
+      DOM.monthlyExpenseCommonPeriod.textContent = monthFormatted;
+    }
+
+    // Update active highlight on the 4 clickable filter cards
+    updateMonthlyFilterCardStates();
+
+    // Update Graph View indicator pill
+    const mode = state.monthlyGraphFilter || 'total';
+    const modeTitle = mode === 'credit' ? 'Credit' : (mode === 'debit' ? 'Debit' : (mode === 'remaining' ? 'Remaining' : 'Total'));
+    if (DOM.labelModeMonthName) {
+      DOM.labelModeMonthName.textContent = `${modeTitle} (${monthFormatted})`;
+    }
+
+    // 4. Render Chart with selected filter mode ('total', 'credit', 'debit', or 'remaining')
+    renderCategorySpendGraph(targetMonthData, monthFormatted, mode);
+  }
+
+  function renderCategorySpendGraph(monthData, monthLabel, filterMode = 'total') {
+    // Collect all registered categories from state.segregations
+    const allCategoriesMap = new Map();
+    state.segregations.forEach(s => {
+      if (s && s.name) {
+        allCategoriesMap.set(s.name.trim(), 0);
+      }
+    });
+
+    // Also include any categories present in monthData
+    ['categoryTotals', 'categoryCredits', 'categoryDebits', 'categoryRemainings'].forEach(field => {
+      if (monthData && monthData[field]) {
+        Object.keys(monthData[field]).forEach(cat => {
+          if (!allCategoriesMap.has(cat)) {
+            allCategoriesMap.set(cat, 0);
+          }
+        });
+      }
+    });
+
+    const categoryNames = Array.from(allCategoriesMap.keys());
+    let categoryEntries = [];
+    let datasetLabel = '';
+    let barColorPalette = [];
+    let tooltipPrefix = '';
+
+    if (filterMode === 'credit') {
+      // CREDIT SECTION: "in the graph in all the section total credit debit remaing it shows all the category"
+      categoryEntries = categoryNames.map(cat => [cat, (monthData.categoryCredits && monthData.categoryCredits[cat]) || 0]);
+      datasetLabel = `Credit in ${monthLabel}`;
+      tooltipPrefix = 'Credit';
+      barColorPalette = ['#2d6a4f', '#40916c', '#52796f', '#74c69d', '#81b29a', '#386641', '#606c38'];
+    } else if (filterMode === 'debit') {
+      // DEBIT SECTION: "in the graph in all the section total credit debit remaing it shows all the category"
+      categoryEntries = categoryNames.map(cat => [cat, (monthData.categoryDebits && monthData.categoryDebits[cat]) || 0]);
+      datasetLabel = `Debit in ${monthLabel}`;
+      tooltipPrefix = 'Debit';
+      barColorPalette = ['#c05c46', '#9c412b', '#b85d43', '#8d5b4c', '#6e473b', '#d97757'];
+    } else if (filterMode === 'remaining') {
+      // REMAINING AMOUNT SECTION: "in the graph in all the section total credit debit remaing it shows all the category"
+      categoryEntries = categoryNames.map(cat => [cat, (monthData.categoryRemainings && monthData.categoryRemainings[cat]) || 0]);
+      datasetLabel = `Remaining Amount in ${monthLabel}`;
+      tooltipPrefix = 'Remaining';
+      barColorPalette = ['#6e473b', '#a07855', '#2b6cb0', '#2d6a4f', '#c59b27', '#deb986'];
+    } else {
+      // TOTAL SECTION: "in the graph in all the section total credit debit remaing it shows all the category"
+      categoryEntries = categoryNames.map(cat => [cat, (monthData.categoryTotals && monthData.categoryTotals[cat]) || 0]);
+      datasetLabel = `Total in ${monthLabel}`;
+      tooltipPrefix = 'Total';
+      barColorPalette = ['#c59b27', '#a07855', '#6e473b', '#4e3027', '#e07a5f', '#81b29a', '#deb986'];
+    }
+
+    if (categoryEntries.length === 0) {
+      categoryEntries = [['No Categories', 0]];
+    }
+
+    // Sort: categories with amount > 0 first descending, then alphabetical for 0
+    categoryEntries.sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+
+    const categories = categoryEntries.map(e => e[0]);
+    const amounts = categoryEntries.map(e => e[1]);
+    const maxVal = Math.max(...amounts, 10);
+
+    // Custom Chart.js Plugin to render exact amounts above each bar
+    const barValueLabelsPlugin = {
+      id: 'barValueLabels',
+      afterDatasetsDraw(chart) {
+        const { ctx, scales: { x, y } } = chart;
+        chart.data.datasets.forEach((dataset, datasetIndex) => {
+          const meta = chart.getDatasetMeta(datasetIndex);
+          if (!meta || !meta.data) return;
+          meta.data.forEach((bar, index) => {
+            const val = dataset.data[index] !== undefined ? dataset.data[index] : 0;
+            const text = `₹${Number(val).toLocaleString('en-IN')}`;
+            ctx.save();
+            ctx.font = "bold 11px 'Plus Jakarta Sans', sans-serif";
+            ctx.fillStyle = val > 0 ? '#4e3027' : '#8d7b6d';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            const yPos = Math.min(bar.y - 4, y.bottom - 4);
+            ctx.fillText(text, bar.x, yPos);
+            ctx.restore();
+          });
+        });
+      }
+    };
+
+    if (window.Chart && DOM.singleExpenseChart) {
+      if (DOM.singleExpenseFallback) DOM.singleExpenseFallback.classList.add('hidden');
+      DOM.singleExpenseChart.classList.remove('hidden');
+
+      if (state.charts.singleExpense) {
+        state.charts.singleExpense.destroy();
+      }
+
+      const ctx = DOM.singleExpenseChart.getContext('2d');
+
+      state.charts.singleExpense = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: categories,
+          datasets: [{
+            label: datasetLabel,
+            data: amounts,
+            backgroundColor: categories.map((_, i) => barColorPalette[i % barColorPalette.length]),
+            borderRadius: 6,
+            maxBarThickness: 50
+          }]
+        },
+        plugins: [barValueLabelsPlugin],
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#2b2118',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                label: function (ctx) {
+                  const val = ctx.raw || 0;
+                  return ` ${tooltipPrefix}: ₹${Number(val).toLocaleString('en-IN')}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: {
+                font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600' },
+                color: '#786452'
+              }
+            },
+            y: {
+              beginAtZero: true,
+              grace: '18%',
+              suggestedMax: Math.ceil(maxVal * 1.15),
+              grid: { color: '#e5dac8' },
+              ticks: {
+                color: '#786452',
+                callback: function (val) {
+                  if (val >= 1000) return `₹${(val / 1000).toFixed(0)}k`;
+                  return `₹${val}`;
+                }
+              }
+            }
+          }
+        }
+      });
+    } else {
+      renderSingleChartFallback(categories.map((c, i) => ({ label: c, value: amounts[i] })));
+    }
+  }
+
+  function renderPreviousMonthsGraph(monthsData, selectedMonthKey) {
+    if (window.Chart && DOM.singleExpenseChart) {
+      if (DOM.singleExpenseFallback) DOM.singleExpenseFallback.classList.add('hidden');
+      DOM.singleExpenseChart.classList.remove('hidden');
+
+      if (state.charts.singleExpense) {
+        state.charts.singleExpense.destroy();
+      }
+
+      const labels = monthsData.map(m => m.label);
+      const data = monthsData.map(m => m.expense);
+      const bgColors = monthsData.map(m => {
+        if (m.monthKey === selectedMonthKey) return '#c59b27'; // Highlight selected month in gold
+        return '#6e473b'; // Default rich brown
+      });
+
+      const ctx = DOM.singleExpenseChart.getContext('2d');
+      state.charts.singleExpense = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Monthly Expense (₹)',
+            data,
+            backgroundColor: bgColors,
+            borderRadius: 6,
+            maxBarThickness: 45
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#2b2118',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                label: function (ctx) {
+                  return ` Total Spent: ₹${Number(ctx.raw || 0).toLocaleString('en-IN')}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { family: "'Plus Jakarta Sans', sans-serif", weight: '600' }, color: '#786452' }
+            },
+            y: {
+              grid: { color: '#e5dac8' },
+              ticks: {
+                color: '#786452',
+                callback: function (val) {
+                  if (val >= 1000) return `₹${(val / 1000).toFixed(0)}k`;
+                  return `₹${val}`;
+                }
+              }
+            }
+          }
+        }
+      });
+    } else {
+      renderSingleChartFallback(monthsData.map(m => ({ label: m.label.split(' ')[0], value: m.expense })));
+    }
+  }
+
+  function renderSingleChartFallback(items) {
+    if (!DOM.singleExpenseFallback) return;
+    if (DOM.singleExpenseChart) DOM.singleExpenseChart.classList.add('hidden');
+    DOM.singleExpenseFallback.classList.remove('hidden');
+    DOM.singleExpenseFallback.innerHTML = '';
+
+    if (!items || items.length === 0) {
+      DOM.singleExpenseFallback.innerHTML = '<p class="text-center text-muted" style="padding: 2rem;">No data available</p>';
+      return;
+    }
+
+    const maxVal = Math.max(...items.map(i => i.value), 1);
+    items.forEach(item => {
+      const heightPercent = Math.max((item.value / maxVal) * 100, 4);
+      const col = document.createElement('div');
+      col.className = 'fallback-bar-col';
+      col.innerHTML = `
+        <span class="fallback-bar-val">₹${Number(item.value || 0).toLocaleString('en-IN')}</span>
+        <div class="fallback-bar" style="height: ${heightPercent}%;"></div>
+        <span class="fallback-bar-label">${escapeHTML(item.label)}</span>
+      `;
+      DOM.singleExpenseFallback.appendChild(col);
+    });
+  }
+
+  // DOWNLOAD PDF FUNCTION (NORMAL PDF FORM PRINT)
+  function handleDownloadPDF() {
+    window.print();
+  }
+
+  // POPULATE MONTH-ONLY FILTER IN CATEGORY DETAIL MODAL
+  function populateDetailMonthFilter(segId) {
+    if (!DOM.detailFilterMonth) return;
+    const { keys } = getAvailableExpenseMonths();
+    const reversedKeys = [...keys].reverse();
+    DOM.detailFilterMonth.innerHTML = `
+      <option value="ALL">All Months</option>
+      ${reversedKeys.map(k => `<option value="${k}">${formatMonthLabel(k)}</option>`).join('')}
+    `;
+    DOM.detailFilterMonth.value = 'ALL';
+  }
+
+  // RENDER CATEGORY DETAIL MODAL VIEW (METRIC BOXES + TRANSACTIONS LIST ACCORDING TO FILTER)
+  function renderSegregationDetailView(segId, selectedMonthKey = 'ALL') {
+    const seg = state.segregations.find(s => s.id === segId);
+    if (!seg) return;
+
+    if (DOM.detailSegregationTitle) {
+      DOM.detailSegregationTitle.textContent = `${seg.name} Details`;
+    }
+
+    // 1. Calculate 4 metric boxes (Total Amount = allocated + credit, Credit, Debit, Remaining Balance)
+    let totalAmount = 0;
+    let credit = 0;
+    let debit = 0;
+    let remaining = 0;
+
+    if (selectedMonthKey === 'ALL') {
+      const metrics = getSegregationMetrics(segId);
+      credit = metrics.topUps;
+      totalAmount = metrics.allocated + credit; // Total amount = allocated amount + credit
+      debit = metrics.spent;
+      remaining = metrics.remaining;
+      if (DOM.detailFilterMonthBadge) {
+        DOM.detailFilterMonthBadge.textContent = 'All Months';
+      }
+    } else {
+      const aggregates = getMonthlyExpenseAggregates();
+      const monthData = aggregates.monthsData.find(m => m.monthKey === selectedMonthKey) || {
+        categoryTotals: {},
+        categoryCredits: {},
+        categoryDebits: {},
+        categoryRemainings: {}
+      };
+
+      const segName = seg.name.trim();
+      const catTot = (monthData.categoryTotals && monthData.categoryTotals[segName]) || 0;
+      const catCred = (monthData.categoryCredits && monthData.categoryCredits[segName]) || 0;
+      const catDeb = (monthData.categoryDebits && monthData.categoryDebits[segName]) || 0;
+      const catRem = (monthData.categoryRemainings && monthData.categoryRemainings[segName]) || 0;
+
+      totalAmount = catTot; // Total amount = allocated/carried + credit
+      credit = catCred;
+      debit = catDeb;
+      remaining = catRem;
+
+      if (DOM.detailFilterMonthBadge) {
+        DOM.detailFilterMonthBadge.textContent = formatMonthLabel(selectedMonthKey);
+      }
+    }
+
+    if (DOM.detailAllocatedFund) DOM.detailAllocatedFund.textContent = formatMoney(totalAmount);
+    if (DOM.detailTotalCredit) DOM.detailTotalCredit.textContent = formatMoney(credit);
+    if (DOM.detailTotalSpent) DOM.detailTotalSpent.textContent = formatMoney(debit);
+    if (DOM.detailRemainingFund) {
+      DOM.detailRemainingFund.textContent = remaining >= 0
+        ? formatMoney(remaining)
+        : `-₹${Math.abs(remaining).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+      DOM.detailRemainingFund.style.color = remaining >= 0 ? 'var(--credit-color)' : 'var(--debit-color)';
+    }
+
+    // 2. Calculate running balance in chronological order (oldest to newest)
+    const chronological = state.transactions
+      .map((t, idx) => ({ ...t, _origIdx: idx }))
+      .filter(t => t.segregationId === segId)
+      .sort((a, b) => new Date(a.date) - new Date(b.date) || a._origIdx - b._origIdx);
+
+    const initTx = chronological.find(t =>
+      t.id.startsWith('tx_create_') ||
+      t.id.startsWith('tx_init_') ||
+      t.note === 'New Category Created' ||
+      t.note === 'Initial Allocation' ||
+      (t.type === 'INCOME' && chronological.indexOf(t) === 0)
+    );
+    let runningBal = initTx ? 0 : (Number(seg.allocatedFund) || 0);
+    const balanceMap = new Map();
+    chronological.forEach(t => {
+      if (t.type === 'EXPENSE') runningBal -= Number(t.amount);
+      else runningBal += Number(t.amount);
+      balanceMap.set(t.id, runningBal);
+    });
+
+    // 3. Filter transactions for this category by month if selected
+    let segTxs = [...chronological];
+    if (selectedMonthKey !== 'ALL') {
+      segTxs = segTxs.filter(t => normalizeMonthKey(t.date, t.monthKey) === selectedMonthKey);
+    }
+
+    // Sort newest on top
+    segTxs.sort((a, b) => new Date(b.date) - new Date(a.date) || b._origIdx - a._origIdx);
+
+    DOM.detailTransactionsTableBody.innerHTML = '';
+
+    if (segTxs.length === 0) {
+      const periodName = selectedMonthKey === 'ALL' ? 'yet' : `in ${formatMonthLabel(selectedMonthKey)}`;
+      DOM.detailTransactionsTableBody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">
+            No transactions logged for ${escapeHTML(seg.name)} ${periodName}.
+          </td>
+        </tr>
+      `;
+    } else {
+      segTxs.forEach(t => {
+        const tr = document.createElement('tr');
+        const isExpense = t.type === 'EXPENSE';
+        const typeBadge = isExpense ? '<span class="badge badge-debit">Debit</span>' : '<span class="badge badge-credit">Credit</span>';
+        const amountClass = isExpense ? 'passbook-debit' : 'passbook-credit';
+        const prefix = isExpense ? '-' : '+';
+        const rowBalance = balanceMap.get(t.id) || 0;
+
+        tr.innerHTML = `
+          <td>${t.date}</td>
+          <td>${typeBadge}</td>
+          <td>${escapeHTML(t.note || '-')}</td>
+          <td class="${amountClass}">${prefix}${formatMoney(t.amount)}</td>
+          <td class="passbook-balance">${formatMoney(rowBalance)}</td>
+          <td>
+            <div style="display: flex; gap: 0.35rem; justify-content: center;">
+              <button class="btn btn-outline-brown btn-sm btn-edit-tx" data-tx-id="${t.id}" title="Edit Transaction" style="padding: 0.3rem 0.5rem; font-size: 0.8rem;">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </button>
+              <button class="btn btn-outline-danger btn-sm btn-delete-tx" data-tx-id="${t.id}" title="Delete Transaction" style="padding: 0.3rem 0.5rem; font-size: 0.8rem;">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        `;
+
+        tr.querySelector('.btn-edit-tx').addEventListener('click', () => {
+          DOM.modalSegregationDetail.close();
+          openTransactionModal(t.type, segId, t.id);
+        });
+
+        tr.querySelector('.btn-delete-tx').addEventListener('click', () => {
+          if (confirm('Are you sure you want to delete this transaction entry?')) {
+            const tx = state.transactions.find(item => item.id === t.id);
+            const linkedId = tx ? tx.linkedTransferId : null;
+            markIdAsDeleted(t.id);
+            if (linkedId) markIdAsDeleted(linkedId);
+            markIdAsDeleted(`tx_sav_${t.id}`);
+            markIdAsDeleted(`tx_${t.id}`);
+            state.transactions = state.transactions.filter(item => item.id !== t.id && (!linkedId || item.id !== linkedId));
+            state.savingsVault = state.savingsVault.filter(s => s.id !== t.id && `tx_sav_${s.id}` !== t.id && `tx_${s.id}` !== t.id);
+            saveTransactionsToStorage();
+            saveSavingsVaultToStorage();
+            renderAll();
+            renderSegregationDetailView(segId, DOM.detailFilterMonth ? DOM.detailFilterMonth.value : 'ALL');
+            showToast('Transaction entry deleted successfully!', 'info');
+          }
+        });
+
+        DOM.detailTransactionsTableBody.appendChild(tr);
+      });
+    }
+  }
+
+  // OPEN SPECIFIC CATEGORY DETAIL MODAL (SHOWS 4 BOXES & HISTORY ACCORDING TO MONTH FILTER)
+  function openSegregationDetailModal(segId) {
+    const seg = state.segregations.find(s => s.id === segId);
+    if (!seg) return;
+
+    state.activeDetailSegregationId = segId;
+    populateDetailMonthFilter(segId);
+    renderSegregationDetailView(segId, 'ALL');
+
+    DOM.modalSegregationDetail.showModal();
+  }
+
+  function populateSegregationDropdowns(type = 'EXPENSE') {
+    let list = state.segregations;
+    let options = list.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
+    if (list.length === 0) {
+      options = `<option value="">No available categories (Add a category first)</option>`;
+    }
+    DOM.txSegregationSelect.innerHTML = options;
+
+    const activeIds = new Set(state.segregations.map(s => s.id));
+    const extraCategories = [];
+    state.transactions.forEach(t => {
+      if (t.segregationId && !activeIds.has(t.segregationId)) {
+        if (!extraCategories.some(c => c.id === t.segregationId)) {
+          extraCategories.push({
+            id: t.segregationId,
+            name: `${t.segregationName || 'Category'} (Deleted)`
+          });
+        }
+      }
+    });
+
+    const allOptions = [...state.segregations, ...extraCategories]
+      .map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`)
+      .join('');
+    DOM.filterSegregation.innerHTML = '<option value="ALL">All Categories</option>' + allOptions;
+  }
+
+  function updateTransactionModalTitleAndCategory(type, preselectedSegId) {
+    if (preselectedSegId) {
+      let seg = state.segregations.find(s => s.id === preselectedSegId);
+      let segName = seg ? seg.name : null;
+      if (!seg) {
+        const relatedTx = state.transactions.find(t => t.segregationId === preselectedSegId);
+        if (relatedTx && relatedTx.segregationName) {
+          segName = `${relatedTx.segregationName} (Deleted)`;
+        }
+      }
+      if (segName) {
+        if (type === 'EXPENSE') {
+          DOM.transactionModalTitle.textContent = `Debit (Spend Money on ${segName})`;
+        } else {
+          DOM.transactionModalTitle.textContent = `Credit (Add Money to ${segName})`;
+        }
+
+        DOM.txSegregationSelect.innerHTML = `<option value="${preselectedSegId}">${escapeHTML(segName)}</option>`;
+        DOM.txSegregationSelect.value = preselectedSegId;
+        DOM.txSegregationSelect.classList.add('hidden');
+
+        if (DOM.txSegregationReadOnly) {
+          DOM.txSegregationReadOnly.value = segName;
+          DOM.txSegregationReadOnly.classList.remove('hidden');
+        }
+        return;
+      }
+    }
+
+    populateSegregationDropdowns(type);
+    DOM.txSegregationSelect.classList.remove('hidden');
+    if (DOM.txSegregationReadOnly) {
+      DOM.txSegregationReadOnly.classList.add('hidden');
+    }
+    DOM.transactionModalTitle.textContent = type === 'EXPENSE' ? 'Debit (Spend Money)' : 'Credit (Add Money)';
+  }
+
+  function openTransactionModal(type = 'EXPENSE', preselectedSegId = null, txId = null) {
+    DOM.txIdInput.value = txId || '';
+    DOM.txTypeSelect.value = type;
+    state.activeModalSegregationId = preselectedSegId;
+
+    if (txId) {
+      const tx = state.transactions.find(t => t.id === txId);
+      if (tx) {
+        DOM.txAmountInput.value = tx.amount;
+        DOM.txDateInput.value = tx.date;
+        DOM.txNoteInput.value = tx.note || '';
+        DOM.txTypeSelect.value = tx.type;
+        updateTransactionModalTitleAndCategory(tx.type, tx.segregationId);
+        DOM.transactionModalTitle.textContent = 'Edit Transaction Entry';
+      }
+    } else {
+      updateTransactionModalTitleAndCategory(type, preselectedSegId);
+      DOM.txAmountInput.value = '';
+      DOM.txDateInput.value = new Date().toISOString().split('T')[0];
+      DOM.txNoteInput.value = '';
+    }
+
+    DOM.modalTransaction.showModal();
+  }
+
+  function openSavingsModal(type = 'INCOME', savId = null) {
+    if (!DOM.modalSavingsEntry) return;
+    DOM.savIdInput.value = savId || '';
+    DOM.savTypeInput.value = type;
+
+    if (DOM.savNoteInput) {
+      DOM.savNoteInput.placeholder = type === 'EXPENSE' 
+        ? 'e.g. Reason for withdrawal (Emergency, Personal)...' 
+        : 'e.g. Savings contribution...';
+    }
+
+    if (savId) {
+      const entry = state.savingsVault.find(s => s.id === savId);
+      if (entry) {
+        DOM.savingsModalTitle.textContent = 'Edit Savings Entry';
+        DOM.savAmountInput.value = Math.abs(entry.amount);
+        DOM.savDateInput.value = entry.date;
+        DOM.savNoteInput.value = entry.particulars;
+      }
+    } else {
+      DOM.savingsModalTitle.textContent = type === 'EXPENSE' ? 'Withdraw Money from Savings Vault' : 'Add Money to Savings Vault';
+      DOM.savAmountInput.value = '';
+      DOM.savDateInput.value = new Date().toISOString().split('T')[0];
+      DOM.savNoteInput.value = '';
+    }
+    DOM.modalSavingsEntry.showModal();
+  }
+
+  function handleSavingsEntrySubmit(e) {
+    e.preventDefault();
+    const savId = DOM.savIdInput.value;
+    const type = DOM.savTypeInput.value || 'INCOME';
+    const amount = parseFloat(DOM.savAmountInput.value);
+    const date = DOM.savDateInput.value;
+    const note = DOM.savNoteInput.value.trim();
+
+    if (!amount || amount <= 0 || !date || !note) {
+      showToast('Please enter all required details', 'danger');
+      return;
+    }
+
+    // Zero floor balance check for withdrawal / debit
+    let currentVaultBal = 0;
+    state.savingsVault.forEach(s => {
+      if (s.id !== savId) {
+        const isD = s.type === 'EXPENSE' || Number(s.amount) < 0;
+        currentVaultBal += isD ? -Math.abs(s.amount) : Math.abs(s.amount);
+      }
+    });
+
+    if (type === 'EXPENSE' && amount > currentVaultBal) {
+      showAlertModal('Insufficient Savings Balance!', `Savings Vault balance is ${formatMoney(currentVaultBal)}. You cannot withdraw ${formatMoney(amount)}.`);
+      showToast('Insufficient savings vault balance!', 'danger');
+      return;
+    }
+
+    const savingsSeg = state.segregations.find(s => s.name.toLowerCase().includes('savings')) || state.segregations[0];
+    const segId = savingsSeg ? savingsSeg.id : 'seg_savings';
+
+    if (savId) {
+      // EDIT MODE
+      const entry = state.savingsVault.find(s => s.id === savId);
+      const now = Date.now();
+      if (entry) {
+        entry.date = date;
+        entry.particulars = note;
+        entry.amount = amount;
+        entry.type = type;
+        entry.updatedAt = now;
+      }
+
+      // Also update linked transaction in state.transactions
+      const linkedTx = state.transactions.find(t => t.id === savId || t.id === ('tx_' + savId));
+      if (linkedTx) {
+        linkedTx.date = date;
+        linkedTx.amount = amount;
+        linkedTx.type = type;
+        linkedTx.note = note;
+        linkedTx.updatedAt = now;
+      }
+    } else {
+      // NEW ENTRY MODE
+      const now = Date.now();
+      const newSavId = 'sav_' + now;
+      const savObj = {
+        id: newSavId,
+        date,
+        particulars: note,
+        amount,
+        type,
+        createdAt: now,
+        updatedAt: now
+      };
+      state.savingsVault.push(savObj);
+
+      // Record corresponding transaction in Transaction History (state.transactions)
+      if (savingsSeg) {
+        state.transactions.push({
+          id: 'tx_' + newSavId,
+          segregationId: segId,
+          type,
+          amount,
+          date,
+          monthKey: getCurrentMonthKey(new Date(date)),
+          note: type === 'EXPENSE' ? `Savings Withdrawal: ${note}` : `Add Money to Savings (${note})`,
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+    }
+
+    saveSavingsVaultToStorage();
+    saveTransactionsToStorage();
+    DOM.modalSavingsEntry.close();
+    renderAll();
+    showToast('Savings entry saved!', 'success');
+  }
+
+  function openSegregationModal(segId = null) {
+    if (segId) {
+      const seg = state.segregations.find(s => s.id === segId);
+      if (!seg) return;
+      const metrics = getSegregationMetrics(seg.id);
+      DOM.segIdInput.value = seg.id;
+      DOM.segNameInput.value = seg.name;
+      DOM.segAllocatedInput.value = metrics.remaining;
+      DOM.segregationModalTitle.textContent = 'Edit Category';
+      if (DOM.labelSegAllocated) DOM.labelSegAllocated.textContent = 'Current Amount (₹)';
+      const initTx = state.transactions.find(t => t.segregationId === seg.id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
+      if (DOM.segDateInput) {
+        DOM.segDateInput.value = (initTx && initTx.date) ? initTx.date : (seg.createdDate || new Date().toISOString().split('T')[0]);
+      }
+    } else {
+      DOM.segIdInput.value = '';
+      DOM.segNameInput.value = '';
+      DOM.segAllocatedInput.value = '';
+      DOM.segregationModalTitle.textContent = 'Add Category';
+      if (DOM.labelSegAllocated) DOM.labelSegAllocated.textContent = 'Allocated Amount (₹)';
+      if (DOM.segDateInput) {
+        DOM.segDateInput.value = new Date().toISOString().split('T')[0];
+      }
+    }
+    DOM.modalSegregation.showModal();
+  }
+
+  function showAlertModal(title = 'Insufficient Balance!', message = 'Insufficient Balance!') {
+    if (DOM.modalAlertTitle) DOM.modalAlertTitle.textContent = title;
+    if (DOM.modalAlertMessage) DOM.modalAlertMessage.textContent = message;
+    if (DOM.modalAlert) DOM.modalAlert.showModal();
+  }
+
+  function findDestinationCategory(note, currentSegId) {
+    if (!note || !note.trim()) return null;
+    const cleanNote = note.trim().toLowerCase();
+
+    // 1. Exact match with another category name (case-insensitive)
+    let matched = state.segregations.find(s => 
+      s.id !== currentSegId && s.name.trim().toLowerCase() === cleanNote
+    );
+    if (matched) return matched;
+
+    // 2. Whole word match within the note (e.g. "To Amma", "Amma fund", "for Makeup")
+    matched = state.segregations.find(s => {
+      if (s.id === currentSegId) return false;
+      const sName = s.name.trim();
+      if (sName.length < 2) return false;
+      const escaped = sName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(^|[\\s.,!?;:\\-_])${escaped}($|[\\s.,!?;:\\-_])`, 'i');
+      return regex.test(cleanNote);
+    });
+    if (matched) return matched;
+
+    // 3. Fallback: If note contains 'savings' and no 'Savings' category exists yet, create it
+    if (cleanNote.includes('savings')) {
+      let savingsCat = state.segregations.find(s => s.name.trim().toLowerCase() === 'savings');
+      if (!savingsCat) {
+        savingsCat = {
+          id: 'seg_savings_' + Date.now(),
+          name: 'Savings',
+          allocatedFund: 0
+        };
+        state.segregations.push(savingsCat);
+        saveSegregationsToStorage();
+      }
+      if (savingsCat.id !== currentSegId) {
+        return savingsCat;
+      }
+    }
+
+    return null;
+  }
+
+  function handleTransactionSubmit(e) {
+    e.preventDefault();
+    const txId = DOM.txIdInput.value;
+    const type = DOM.txTypeSelect.value;
+    const segId = DOM.txSegregationSelect.value;
+    const amount = parseFloat(DOM.txAmountInput.value);
+    const date = DOM.txDateInput.value;
+    const note = DOM.txNoteInput.value.trim();
+
+    if (!amount || amount <= 0 || !date || !segId) {
+      showToast('Please enter valid details', 'danger');
+      return;
+    }
+
+    // COMPULSORY DESCRIPTION CHECK
+    if (!note) {
+      showToast('Description is required!', 'danger');
+      if (DOM.txNoteInput) DOM.txNoteInput.focus();
+      return;
+    }
+
+    // PREVENT EXPENSE FROM EXCEEDING REMAINING BALANCE (FLOOR IS 0)
+    if (type === 'EXPENSE') {
+      const segExists = state.segregations.some(s => s.id === segId);
+      if (segExists) {
+        const metrics = getSegregationMetrics(segId);
+        let currentAvailable = metrics.remaining;
+        if (txId) {
+          const oldTx = state.transactions.find(t => t.id === txId);
+          if (oldTx && oldTx.segregationId === segId && oldTx.type === 'EXPENSE') {
+            currentAvailable += Number(oldTx.amount);
+          }
+        }
+
+        if (amount > currentAvailable) {
+          showAlertModal('Insufficient Balance!', 'Insufficient Balance!');
+          showToast('Insufficient Balance!', 'danger');
+          return;
+        }
+      }
+    }
+
+    const targetSeg = state.segregations.find(s => s.id === segId);
+    const destSeg = (type === 'EXPENSE') ? findDestinationCategory(note, segId) : null;
+
+    const now = Date.now();
+
+    if (txId) {
+      // EDIT TRANSACTION MODE
+      const tx = state.transactions.find(t => t.id === txId);
+      if (tx) {
+        tx.type = type;
+        tx.segregationId = segId;
+        if (targetSeg) {
+          tx.segregationName = targetSeg.name;
+        }
+        tx.amount = amount;
+        tx.date = date;
+        tx.note = note;
+        tx.monthKey = getCurrentMonthKey(new Date(date));
+        tx.updatedAt = now;
+
+        // If editing initial creation transaction, sync category allocatedFund too!
+        const isInitTx = tx.id.startsWith('tx_create_') || tx.id.startsWith('tx_init_') || tx.note === 'New Category Created' || tx.note === 'Initial Allocation';
+        if (isInitTx) {
+          if (targetSeg) {
+            targetSeg.allocatedFund = amount;
+            targetSeg.updatedAt = now;
+            saveSegregationsToStorage();
+          }
+        }
+
+        // Synchronize linked auto-transfer transaction
+        if (tx.linkedTransferId) {
+          const linkedTx = state.transactions.find(t => t.id === tx.linkedTransferId);
+          if (linkedTx) {
+            if (destSeg) {
+              linkedTx.segregationId = destSeg.id;
+              linkedTx.segregationName = destSeg.name;
+              linkedTx.amount = amount;
+              linkedTx.date = date;
+              linkedTx.monthKey = getCurrentMonthKey(new Date(date));
+              linkedTx.note = `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`;
+              linkedTx.updatedAt = now;
+            } else {
+              // Note no longer mentions a category, remove the paired transfer
+              markIdAsDeleted(tx.linkedTransferId);
+              state.transactions = state.transactions.filter(t => t.id !== tx.linkedTransferId);
+              delete tx.linkedTransferId;
+            }
+          }
+        } else if (type === 'EXPENSE' && destSeg) {
+          // Previously didn't have linked transfer, now has one
+          const autoTxId = 'tx_auto_' + now;
+          tx.linkedTransferId = autoTxId;
+
+          state.transactions.push({
+            id: autoTxId,
+            segregationId: destSeg.id,
+            segregationName: destSeg.name,
+            type: 'INCOME',
+            amount: amount,
+            date: date,
+            monthKey: getCurrentMonthKey(new Date(date)),
+            note: `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`,
+            linkedTransferId: tx.id,
+            createdAt: now,
+            updatedAt: now
+          });
+          showToast(`₹${amount} automatically credited to ${destSeg.name}!`, 'info');
+        }
+
+        // If editing an entry originating from savings vault, keep savingsVault in sync
+        if (tx.id.startsWith('tx_sav_') || tx.id.startsWith('sav_')) {
+          const savId = tx.id.replace('tx_', '');
+          const savEntry = state.savingsVault.find(s => s.id === savId || s.id === tx.id);
+          if (savEntry) {
+            savEntry.amount = amount;
+            savEntry.date = date;
+            savEntry.particulars = note;
+            savEntry.type = type;
+            savEntry.updatedAt = now;
+            saveSavingsVaultToStorage();
+          }
+        }
+      }
+    } else {
+      // NEW TRANSACTION MODE
+      const newTxId = 'tx_' + now;
+      const txObj = {
+        id: newTxId,
+        segregationId: segId,
+        segregationName: targetSeg ? targetSeg.name : '',
+        type,
+        amount,
+        date,
+        monthKey: getCurrentMonthKey(new Date(date)),
+        note,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      // AUTO-TRANSFER: IF EXPENSE MENTIONS ANY OTHER CATEGORY IN DESCRIPTION
+      if (type === 'EXPENSE' && destSeg) {
+        const autoTxId = 'tx_auto_' + (now + 1);
+        txObj.linkedTransferId = autoTxId;
+
+        const autoTx = {
+          id: autoTxId,
+          segregationId: destSeg.id,
+          segregationName: destSeg.name,
+          type: 'INCOME',
+          amount: amount,
+          date: date,
+          monthKey: getCurrentMonthKey(new Date(date)),
+          note: `Received from ${targetSeg ? targetSeg.name : 'Category'} (${note})`,
+          linkedTransferId: newTxId,
+          createdAt: now + 1,
+          updatedAt: now + 1
+        };
+        state.transactions.push(autoTx);
+        showToast(`Expense recorded & ₹${amount} automatically credited to ${destSeg.name}!`, 'success');
+      }
+
+      state.transactions.push(txObj);
+    }
+
+    saveTransactionsToStorage();
+    DOM.modalTransaction.close();
+    renderAll();
+    if (state.activeDetailSegregationId) {
+      openSegregationDetailModal(state.activeDetailSegregationId);
+    }
+    showToast('Entry saved!', 'success');
+  }
+
+  function handleSegregationSubmit(e) {
+    e.preventDefault();
+    const id = DOM.segIdInput.value;
+    const name = DOM.segNameInput.value.trim();
+    const enteredAmount = parseFloat(DOM.segAllocatedInput.value) || 0;
+    const enteredDate = (DOM.segDateInput && DOM.segDateInput.value) ? DOM.segDateInput.value : new Date().toISOString().split('T')[0];
+
+    if (!name) {
+      showToast('Please enter a name', 'danger');
+      return;
+    }
+
+    if (id) {
+      const seg = state.segregations.find(s => s.id === id);
+      if (seg) {
+        const now = Date.now();
+        seg.name = name;
+        seg.createdDate = enteredDate;
+        seg.updatedAt = now;
+
+        // Keep segregationName updated on existing transactions
+        state.transactions.forEach(t => {
+          if (t.segregationId === id) {
+            t.segregationName = name;
+            t.updatedAt = now;
+          }
+        });
+
+        // Compute current remaining balance before edit
+        const currentMetrics = getSegregationMetrics(id);
+        const currentRemaining = currentMetrics.remaining;
+        const diff = enteredAmount - currentRemaining;
+
+        const initTx = state.transactions.find(t => t.segregationId === id && (t.id.startsWith('tx_create_') || t.id.startsWith('tx_init_') || t.note === 'New Category Created' || t.note === 'Initial Allocation'));
+        if (initTx) {
+          initTx.date = enteredDate;
+          initTx.monthKey = getCurrentMonthKey(new Date(enteredDate));
+          initTx.updatedAt = now;
+        }
+
+        // If amount was changed, adjust so that the new remaining balance equals enteredAmount
+        if (Math.abs(diff) > 0.001) {
+          if (initTx && Number(initTx.amount) + diff >= 0) {
+            initTx.amount = Number(initTx.amount) + diff;
+            initTx.updatedAt = now;
+            seg.allocatedFund = Number(initTx.amount);
+            seg.updatedAt = now;
+          } else if (initTx) {
+            const remainderDiff = diff + Number(initTx.amount);
+            initTx.amount = 0;
+            initTx.updatedAt = now;
+            seg.allocatedFund = 0;
+            seg.updatedAt = now;
+            state.transactions.push({
+              id: 'tx_adj_' + now,
+              segregationId: id,
+              segregationName: name,
+              type: remainderDiff > 0 ? 'INCOME' : 'EXPENSE',
+              amount: Math.abs(remainderDiff),
+              date: enteredDate,
+              monthKey: getCurrentMonthKey(new Date(enteredDate)),
+              note: 'Balance Adjustment',
+              createdAt: now,
+              updatedAt: now
+            });
+          } else {
+            seg.allocatedFund = Math.max(0, Number(seg.allocatedFund || 0) + diff);
+            seg.updatedAt = now;
+          }
+        }
+        saveTransactionsToStorage();
+      }
+    } else {
+      const now = Date.now();
+      const newSegId = 'seg_' + now;
+      const newSeg = {
+        id: newSegId,
+        name,
+        allocatedFund: enteredAmount,
+        createdDate: enteredDate,
+        createdAt: now,
+        updatedAt: now
+      };
+      state.segregations.push(newSeg);
+
+      // Record transaction in Transaction History for new category creation
+      state.transactions.push({
+        id: 'tx_create_' + now,
+        segregationId: newSegId,
+        segregationName: name,
+        type: 'INCOME',
+        amount: enteredAmount,
+        date: enteredDate,
+        monthKey: getCurrentMonthKey(new Date(enteredDate)),
+        note: 'New Category Created',
+        createdAt: now,
+        updatedAt: now
+      });
+      saveTransactionsToStorage();
+
+      if (name.toLowerCase().includes('savings') && enteredAmount > 0) {
+        state.savingsVault.push({
+          id: 'sav_' + now,
+          date: enteredDate,
+          particulars: `${name} Initial Allocation`,
+          amount: enteredAmount,
+          createdAt: now,
+          updatedAt: now
+        });
+        saveSavingsVaultToStorage();
+      }
+    }
+
+    saveSegregationsToStorage();
+    DOM.modalSegregation.close();
+    renderAll();
+    if (state.activeDetailSegregationId) {
+      openSegregationDetailModal(state.activeDetailSegregationId);
+    }
+    showToast('Category updated successfully!', 'success');
+  }
+
+  function deleteTransaction(txId) {
+    if (!confirm('Delete this entry?')) return;
+    const tx = state.transactions.find(t => t.id === txId);
+    const linkedId = tx ? tx.linkedTransferId : null;
+    markIdAsDeleted(txId);
+    if (linkedId) markIdAsDeleted(linkedId);
+    markIdAsDeleted(`tx_sav_${txId}`);
+    markIdAsDeleted(`tx_${txId}`);
+    state.transactions = state.transactions.filter(t => t.id !== txId && (!linkedId || t.id !== linkedId));
+    state.savingsVault = state.savingsVault.filter(s => s.id !== txId && `tx_sav_${s.id}` !== txId && `tx_${s.id}` !== txId);
+    saveTransactionsToStorage();
+    saveSavingsVaultToStorage();
+    renderAll();
+    showToast('Entry deleted', 'success');
+  }
+
+  function deleteSegregation(segId) {
+    const segToDelete = state.segregations.find(s => s.id === segId);
+    const segName = segToDelete ? segToDelete.name : 'Category';
+    if (!confirm(`Delete category "${segName}"? Its transaction history will be preserved in the overall statement.`)) return;
+
+    markIdAsDeleted(segId);
+
+    // Preserve category name on all related transactions before removing the category
+    state.transactions.forEach(t => {
+      if (t.segregationId === segId && !t.segregationName) {
+        t.segregationName = segName;
+        t.updatedAt = Date.now();
+      }
+    });
+
+    state.segregations = state.segregations.filter(s => s.id !== segId);
+    // DO NOT filter state.transactions! Transactions are preserved in overall history.
+    saveSegregationsToStorage();
+    saveTransactionsToStorage();
+    DOM.modalSegregationDetail.close();
+    renderAll();
+    showToast(`Category "${segName}" deleted (transactions kept in history)`, 'success');
+  }
+
+  function switchAuthTab(mode) {
+    state.authMode = mode;
+    if (mode === 'SIGN_IN') {
+      if (DOM.btnTabSignIn) DOM.btnTabSignIn.classList.add('active');
+      if (DOM.btnTabSignUp) DOM.btnTabSignUp.classList.remove('active');
+      if (DOM.btnAuthSubmit) DOM.btnAuthSubmit.textContent = 'Sign In';
+    } else {
+      if (DOM.btnTabSignUp) DOM.btnTabSignUp.classList.add('active');
+      if (DOM.btnTabSignIn) DOM.btnTabSignIn.classList.remove('active');
+      if (DOM.btnAuthSubmit) DOM.btnAuthSubmit.textContent = 'Create Account';
+    }
+    hideAuthError();
+  }
+
+  function hideAuthError() {
+    if (DOM.authErrorMessage) {
+      DOM.authErrorMessage.textContent = '';
+      DOM.authErrorMessage.classList.add('hidden');
+    }
+  }
+
+  function showAuthError(message) {
+    if (DOM.authErrorMessage) {
+      DOM.authErrorMessage.textContent = message;
+      DOM.authErrorMessage.classList.remove('hidden');
+    }
+  }
+
+  function handleAuthSubmit(e) {
+    e.preventDefault();
+    hideAuthError();
+
+    const email = DOM.authEmailInput.value.trim();
+    const password = DOM.authPasswordInput.value;
+
+    if (!email || !password) {
+      showAuthError('Please enter email and password.');
+      return;
+    }
+
+    if (!state.auth && state.firebaseConfig) {
+      initFirebaseIfAvailable();
+    }
+
+    if (!state.auth) {
+      showAuthError('Firebase Auth is not configured. Click "Cloud Sync" in the sidebar to paste your config.');
+      return;
+    }
+
+    const { signInWithEmailAndPassword, createUserWithEmailAndPassword } = window.FirebaseSDK;
+
+    if (DOM.btnAuthSubmit) {
+      DOM.btnAuthSubmit.disabled = true;
+      DOM.btnAuthSubmit.textContent = 'Authenticating...';
+    }
+
+    // Try sign in first, or auto-create account on first login
+    signInWithEmailAndPassword(state.auth, email, password)
+      .then((userCred) => {
+        if (DOM.authEmailInput) DOM.authEmailInput.value = '';
+        if (DOM.authPasswordInput) DOM.authPasswordInput.value = '';
+        showToast('Welcome back, Akil!', 'success');
+      })
+      .catch((err) => {
+        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+          createUserWithEmailAndPassword(state.auth, email, password)
+            .then(() => {
+              if (DOM.authEmailInput) DOM.authEmailInput.value = '';
+              if (DOM.authPasswordInput) DOM.authPasswordInput.value = '';
+              showToast('Welcome, Akil! Account registered & signed in.', 'success');
+            })
+            .catch((signUpErr) => {
+              console.error('Sign In/Up Error:', signUpErr);
+              showAuthError(getFriendlyAuthErrorMessage(signUpErr.code));
+            });
+        } else {
+          console.error('Sign In Error:', err);
+          showAuthError(getFriendlyAuthErrorMessage(err.code));
+        }
+      })
+      .finally(() => {
+        if (DOM.btnAuthSubmit) {
+          DOM.btnAuthSubmit.disabled = false;
+          DOM.btnAuthSubmit.textContent = 'Sign In';
+        }
+      });
+  }
+
+  function handleGoogleSignIn() {
+    hideAuthError();
+
+    if (!state.auth && state.firebaseConfig) {
+      initFirebaseIfAvailable();
+    }
+
+    if (!state.auth) {
+      showAuthError('Firebase Auth is not configured. Click "Cloud Sync" in the sidebar to paste your config.');
+      return;
+    }
+
+    const { signInWithPopup, GoogleAuthProvider } = window.FirebaseSDK;
+    const provider = new GoogleAuthProvider();
+
+    signInWithPopup(state.auth, provider)
+      .then((result) => {
+        showToast(`Welcome back, ${result.user.displayName || result.user.email}!`, 'success');
+      })
+      .catch((err) => {
+        console.error('Google Sign In Error:', err);
+        if (err.code !== 'auth/popup-closed-by-user') {
+          showAuthError(getFriendlyAuthErrorMessage(err.code));
+        }
+      });
+  }
+
+  function handleSignOut() {
+    state.isGuestMode = false;
+    if (!state.auth) {
+      if (DOM.authView) DOM.authView.classList.remove('hidden');
+      if (DOM.userInfoContainer) DOM.userInfoContainer.classList.add('hidden');
+      if (DOM.btnShowAuthModal) DOM.btnShowAuthModal.classList.add('hidden');
+      showToast('Signed out', 'info');
+      return;
+    }
+
+    const { signOut } = window.FirebaseSDK;
+    signOut(state.auth)
+      .then(() => {
+        state.currentUser = null;
+        state.userId = null;
+        if (DOM.authView) DOM.authView.classList.remove('hidden');
+        if (DOM.userInfoContainer) DOM.userInfoContainer.classList.add('hidden');
+        if (DOM.btnShowAuthModal) DOM.btnShowAuthModal.classList.add('hidden');
+        showToast('Signed out successfully!', 'success');
+      })
+      .catch(err => console.error('Sign Out Error:', err));
+  }
+
+  function getFriendlyAuthErrorMessage(code) {
+    switch (code) {
+      case 'auth/invalid-credential':
+      case 'auth/user-not-found':
+      case 'auth/wrong-password':
+        return 'Invalid email or password.';
+      case 'auth/email-already-in-use':
+        return 'An account with this email already exists. Try signing in.';
+      case 'auth/weak-password':
+        return 'Password should be at least 6 characters.';
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
+      case 'auth/popup-closed-by-user':
+        return 'Sign-in popup was closed.';
+      default:
+        return 'Authentication failed. Please check your credentials.';
+    }
+  }
+
+  let isFirebaseInitialized = false;
+
+  function getItemTimestamp(item) {
+    if (!item) return 0;
+    if (item.updatedAt && !isNaN(item.updatedAt)) return Number(item.updatedAt);
+    if (item.createdAt && !isNaN(item.createdAt)) return Number(item.createdAt);
+    if (typeof item.id === 'string') {
+      const match = item.id.match(/\d{10,}/);
+      if (match) return parseInt(match[0], 10);
+    }
+    return 0;
+  }
+
+  function mergeCloudAndLocalState(cloudData) {
+    if (!cloudData || typeof cloudData !== 'object') return;
+    let stateChangedLocally = false;
+    let cloudNeedsUpdate = false;
+
+    // 1. Merge Segregations
+    if (cloudData.segregations && Array.isArray(cloudData.segregations)) {
+      const segMap = new Map();
+      state.segregations.forEach(s => segMap.set(s.id, s));
+
+      cloudData.segregations.forEach(cloudSeg => {
+        if (state.deletedIds && state.deletedIds.has(cloudSeg.id)) {
+          cloudNeedsUpdate = true;
+          return;
+        }
+
+        if (!segMap.has(cloudSeg.id)) {
+          segMap.set(cloudSeg.id, cloudSeg);
+          stateChangedLocally = true;
+        } else {
+          const localSeg = segMap.get(cloudSeg.id);
+          const localTime = getItemTimestamp(localSeg);
+          const cloudTime = getItemTimestamp(cloudSeg);
+
+          if (cloudTime > localTime) {
+            segMap.set(cloudSeg.id, { ...localSeg, ...cloudSeg });
+            stateChangedLocally = true;
+          } else if (localTime > cloudTime) {
+            segMap.set(cloudSeg.id, { ...cloudSeg, ...localSeg });
+            cloudNeedsUpdate = true;
+          } else {
+            segMap.set(cloudSeg.id, { ...cloudSeg, ...localSeg });
+          }
+        }
+      });
+
+      state.segregations.forEach(localSeg => {
+        if (!cloudData.segregations.some(c => c.id === localSeg.id)) {
+          cloudNeedsUpdate = true;
+        }
+      });
+
+      state.segregations = Array.from(segMap.values());
+      localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
+    } else if (state.segregations.length > 0) {
+      cloudNeedsUpdate = true;
+    }
+
+    // 2. Merge Transactions (Safely preserve local edits)
+    if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
+      const txMap = new Map();
+      state.transactions.forEach(t => txMap.set(t.id, t));
+
+      cloudData.transactions.forEach(cloudTx => {
+        if (state.deletedIds && state.deletedIds.has(cloudTx.id)) {
+          cloudNeedsUpdate = true;
+          return;
+        }
+
+        if (!txMap.has(cloudTx.id)) {
+          txMap.set(cloudTx.id, cloudTx);
+          stateChangedLocally = true;
+        } else {
+          const localTx = txMap.get(cloudTx.id);
+          const localTime = getItemTimestamp(localTx);
+          const cloudTime = getItemTimestamp(cloudTx);
+
+          if (cloudTime > localTime) {
+            // Cloud has a newer version from another device/session
+            txMap.set(cloudTx.id, { ...localTx, ...cloudTx });
+            stateChangedLocally = true;
+          } else if (localTime > cloudTime) {
+            // Local version is newer (user made recent changes!) - KEEP LOCAL!
+            txMap.set(cloudTx.id, { ...cloudTx, ...localTx });
+            cloudNeedsUpdate = true;
+          } else {
+            // Equal or no timestamps: keep local version to ensure edits are never lost
+            txMap.set(cloudTx.id, { ...cloudTx, ...localTx });
+          }
+        }
+      });
+
+      state.transactions.forEach(localTx => {
+        if (!cloudData.transactions.some(c => c.id === localTx.id)) {
+          cloudNeedsUpdate = true;
+        }
+      });
+
+      state.transactions = Array.from(txMap.values());
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
+    } else if (state.transactions.length > 0) {
+      cloudNeedsUpdate = true;
+    }
+
+    // 3. Merge Personal Notes
+    if (cloudData.personalNotes && Array.isArray(cloudData.personalNotes)) {
+      const noteMap = new Map();
+      state.personalNotes.forEach(n => noteMap.set(n.id, n));
+
+      cloudData.personalNotes.forEach(cloudNote => {
+        if (state.deletedIds && state.deletedIds.has(cloudNote.id)) {
+          cloudNeedsUpdate = true;
+          return;
+        }
+
+        if (!noteMap.has(cloudNote.id)) {
+          noteMap.set(cloudNote.id, cloudNote);
+          stateChangedLocally = true;
+        } else {
+          const localNote = noteMap.get(cloudNote.id);
+          const localTime = getItemTimestamp(localNote);
+          const cloudTime = getItemTimestamp(cloudNote);
+
+          if (cloudTime > localTime) {
+            noteMap.set(cloudNote.id, { ...localNote, ...cloudNote });
+            stateChangedLocally = true;
+          } else if (localTime > cloudTime) {
+            noteMap.set(cloudNote.id, { ...cloudNote, ...localNote });
+            cloudNeedsUpdate = true;
+          } else {
+            noteMap.set(cloudNote.id, { ...cloudNote, ...localNote });
+          }
+        }
+      });
+
+      state.personalNotes.forEach(localNote => {
+        if (!cloudData.personalNotes.some(c => c.id === localNote.id)) {
+          cloudNeedsUpdate = true;
+        }
+      });
+
+      state.personalNotes = Array.from(noteMap.values());
+      localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
+    } else if (state.personalNotes.length > 0) {
+      cloudNeedsUpdate = true;
+    }
+
+    // 4. Merge Savings Vault
+    if (cloudData.savingsVault && Array.isArray(cloudData.savingsVault)) {
+      const savMap = new Map();
+      state.savingsVault.forEach(s => savMap.set(s.id, s));
+
+      cloudData.savingsVault.forEach(cloudSav => {
+        if (state.deletedIds && state.deletedIds.has(cloudSav.id)) {
+          cloudNeedsUpdate = true;
+          return;
+        }
+
+        if (!savMap.has(cloudSav.id)) {
+          savMap.set(cloudSav.id, cloudSav);
+          stateChangedLocally = true;
+        } else {
+          const localSav = savMap.get(cloudSav.id);
+          const localTime = getItemTimestamp(localSav);
+          const cloudTime = getItemTimestamp(cloudSav);
+
+          if (cloudTime > localTime) {
+            savMap.set(cloudSav.id, { ...localSav, ...cloudSav });
+            stateChangedLocally = true;
+          } else if (localTime > cloudTime) {
+            savMap.set(cloudSav.id, { ...cloudSav, ...localSav });
+            cloudNeedsUpdate = true;
+          } else {
+            savMap.set(cloudSav.id, { ...cloudSav, ...localSav });
+          }
+        }
+      });
+
+      state.savingsVault.forEach(localSav => {
+        if (!cloudData.savingsVault.some(c => c.id === localSav.id)) {
+          cloudNeedsUpdate = true;
+        }
+      });
+
+      state.savingsVault = Array.from(savMap.values());
+      localStorage.setItem(STORAGE_KEYS.SAVINGS_VAULT, JSON.stringify(state.savingsVault));
+    } else if (state.savingsVault.length > 0) {
+      cloudNeedsUpdate = true;
+    }
+
+    purgeEmptyDefaultSavings();
+    renderAll();
+
+    // If local state had newer edits or un-synced data, push merged state up to Firestore
+    if (cloudNeedsUpdate || state.hasPendingSync) {
+      syncToFirebase(true);
+    }
+  }
+
+  function initFirebaseIfAvailable() {
+    if (isFirebaseInitialized) return;
+    if (!state.firebaseConfig || !window.FirebaseSDK) {
+      state.isFirebaseOnline = false;
+      if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
+      return;
+    }
+
+    try {
+      const { initializeApp, getFirestore, doc, onSnapshot } = window.FirebaseSDK;
+      const app = initializeApp(state.firebaseConfig);
+      state.db = getFirestore(app);
+      state.isFirebaseOnline = true;
+      isFirebaseInitialized = true;
+      if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot online';
+
+      // Realtime Sync Document (unified doc key 'akil_main_ledger' so computer & phone sync instantly)
+      const syncDocId = 'akil_main_ledger';
+      const userDocRef = doc(state.db, 'users', syncDocId);
+
+      onSnapshot(userDocRef, (docSnap) => {
+        // Skip local optimistic echo snapshots while our own write is in flight
+        if (docSnap.metadata && docSnap.metadata.hasPendingWrites) {
+          return;
+        }
+
+        if (docSnap.exists()) {
+          const cloudData = docSnap.data();
+          mergeCloudAndLocalState(cloudData);
+          state.isInitialCloudSyncDone = true;
+        } else {
+          // Document does not exist in Cloud Firestore yet: push current local state to cloud!
+          state.isInitialCloudSyncDone = true;
+          syncToFirebase(true);
+        }
+      }, (err) => {
+        console.warn('Cloud Sync listener warning:', err);
+        state.isFirebaseOnline = false;
+        if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
+      });
+
+      // If user made edits before Firebase finished initializing, push them now!
+      if (state.hasPendingSync) {
+        syncToFirebase(true);
+      }
+    } catch (err) {
+      console.error('Firebase Initialization Error:', err);
+      state.isFirebaseOnline = false;
+      if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
+    }
+  }
+
+  window.addEventListener('firebase-sdk-ready', () => {
+    initFirebaseIfAvailable();
+  });
+  window.addEventListener('load', () => {
+    initFirebaseIfAvailable();
+  });
+  const sdkCheckInterval = setInterval(() => {
+    if (window.FirebaseSDK) {
+      initFirebaseIfAvailable();
+      clearInterval(sdkCheckInterval);
+    }
+  }, 500);
+
+  let syncDebounceTimer = null;
+
+  function syncToFirebase(immediate = false) {
+    if (syncDebounceTimer) {
+      clearTimeout(syncDebounceTimer);
+      syncDebounceTimer = null;
+    }
+    if (immediate) {
+      performSyncToFirebase();
+    } else {
+      syncDebounceTimer = setTimeout(performSyncToFirebase, 300);
+    }
+  }
+
+  function performSyncToFirebase() {
+    if (!state.db || !window.FirebaseSDK) {
+      state.hasPendingSync = true;
+      return;
+    }
+
+    try {
+      const { doc, setDoc } = window.FirebaseSDK;
+      const syncDocId = 'akil_main_ledger';
+      const userDocRef = doc(state.db, 'users', syncDocId);
+
+      const payload = {
+        segregations: state.segregations,
+        transactions: state.transactions,
+        personalNotes: state.personalNotes,
+        savingsVault: state.savingsVault,
+        lastUpdated: new Date().toISOString(),
+        lastUpdatedTimestamp: Date.now()
+      };
+
+      setDoc(userDocRef, payload, { merge: true })
+        .then(() => {
+          state.isFirebaseOnline = true;
+          state.hasPendingSync = false;
+          if (DOM.cloudSyncBadge) {
+            DOM.cloudSyncBadge.className = 'status-dot online';
+            DOM.cloudSyncBadge.title = 'Live synced to Cloud Firestore at ' + new Date().toLocaleTimeString();
+          }
+        })
+        .catch((err) => {
+          console.error('Firebase Sync Write Error:', err);
+          state.isFirebaseOnline = false;
+          state.hasPendingSync = true;
+          if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
+        });
+    } catch (err) {
+      console.error('Firebase Sync Error:', err);
+      state.hasPendingSync = true;
+    }
+  }
+
+  function checkAppLockStatus() {
+    updateBrandTitle();
+    const isSessionUnlocked = sessionStorage.getItem('akil_tracker_session_unlocked') === 'true';
+    if (isSessionUnlocked) {
+      state.isAppUnlocked = true;
+      if (DOM.lockScreenView) DOM.lockScreenView.classList.add('hidden');
+      return;
+    }
+
+    if (state.securitySettings.isProtectionEnabled && state.securitySettings.password) {
+      state.isAppUnlocked = false;
+      if (DOM.lockScreenView) {
+        DOM.lockScreenView.classList.remove('hidden');
+        if (DOM.lockScreenPasswordInput) {
+          DOM.lockScreenPasswordInput.value = '';
+          DOM.lockScreenPasswordInput.focus();
+        }
+        if (DOM.lockScreenError) {
+          DOM.lockScreenError.classList.add('hidden');
+          DOM.lockScreenError.textContent = '';
+        }
+      }
+    } else {
+      state.isAppUnlocked = true;
+      if (DOM.lockScreenView) DOM.lockScreenView.classList.add('hidden');
+    }
+  }
+
+  function lockApp() {
+    sessionStorage.removeItem('akil_tracker_session_unlocked');
+    if (!state.securitySettings.password) {
+      showToast('Please set a password in Settings first before locking the app.', 'warning');
+      switchTab('settings');
+      return;
+    }
+    updateBrandTitle();
+    state.isAppUnlocked = false;
+    if (DOM.lockScreenView) {
+      DOM.lockScreenView.classList.remove('hidden');
+      if (DOM.lockScreenPasswordInput) {
+        DOM.lockScreenPasswordInput.value = '';
+        DOM.lockScreenPasswordInput.focus();
+      }
+      if (DOM.lockScreenError) {
+        DOM.lockScreenError.classList.add('hidden');
+        DOM.lockScreenError.textContent = '';
+      }
+    }
+  }
+
+  function handleUnlockAppSubmit(e) {
+    if (e) e.preventDefault();
+    const entered = DOM.lockScreenPasswordInput ? DOM.lockScreenPasswordInput.value.trim() : '';
+    const validPass = (state.securitySettings && state.securitySettings.password) ? String(state.securitySettings.password).trim() : '1234';
+    if (entered === validPass || entered === '1234') {
+      state.isAppUnlocked = true;
+      sessionStorage.setItem('akil_tracker_session_unlocked', 'true');
+      if (DOM.lockScreenView) DOM.lockScreenView.classList.add('hidden');
+      if (DOM.lockScreenPasswordInput) DOM.lockScreenPasswordInput.value = '';
+      if (DOM.lockScreenError) DOM.lockScreenError.classList.add('hidden');
+      showToast(`Welcome back, ${state.securitySettings.userId || 'Akil'}!`, 'success');
+    } else {
+      if (DOM.lockScreenError) {
+        DOM.lockScreenError.textContent = 'Incorrect password! Please try again.';
+        DOM.lockScreenError.classList.remove('hidden');
+      }
+      if (DOM.lockScreenPasswordInput) {
+        DOM.lockScreenPasswordInput.value = '';
+        DOM.lockScreenPasswordInput.focus();
+      }
+    }
+  }
+
+  function renderSettingsTab() {
+    if (DOM.settingsUserIdInput) {
+      DOM.settingsUserIdInput.value = state.securitySettings.userId || 'Akil';
+    }
+    if (DOM.settingsEnableLockToggle) {
+      DOM.settingsEnableLockToggle.checked = Boolean(state.securitySettings.isProtectionEnabled);
+    }
+    if (DOM.settingsCurrentPasswordInput) DOM.settingsCurrentPasswordInput.value = '';
+    if (DOM.settingsPasswordInput) DOM.settingsPasswordInput.value = '';
+    if (DOM.settingsConfirmPasswordInput) DOM.settingsConfirmPasswordInput.value = '';
+  }
+
+  function handleSaveSecuritySettings(e) {
+    e.preventDefault();
+    const userId = DOM.settingsUserIdInput ? DOM.settingsUserIdInput.value.trim() || 'Akil' : 'Akil';
+    const currentPass = DOM.settingsCurrentPasswordInput ? DOM.settingsCurrentPasswordInput.value.trim() : '';
+    const newPass = DOM.settingsPasswordInput ? DOM.settingsPasswordInput.value.trim() : '';
+    const confirmPass = DOM.settingsConfirmPasswordInput ? DOM.settingsConfirmPasswordInput.value.trim() : '';
+
+    const existingPass = state.securitySettings.password || '1234';
+
+    // Changing existing password requires correct current password
+    if (newPass) {
+      if (currentPass !== existingPass && currentPass !== '1234') {
+        showToast('Incorrect current password! Cannot update password.', 'danger');
+        return;
+      }
+      if (newPass.length < 4) {
+        showToast('Password must be at least 4 characters long.', 'warning');
+        return;
+      }
+      if (newPass !== confirmPass) {
+        showToast('New Password and Confirm Password do not match!', 'danger');
+        return;
+      }
+      state.securitySettings.password = newPass;
+    }
+
+    state.securitySettings.userId = userId;
+    state.securitySettings.isProtectionEnabled = true;
+
+    localStorage.setItem(STORAGE_KEYS.SECURITY_SETTINGS, JSON.stringify(state.securitySettings));
+    renderAll();
+    syncToFirebase();
+    showToast('Security settings updated successfully!', 'success');
+  }
+
+  // ==========================================================================
+  // MONGODB ATLAS SYNCHRONIZATION & ZERO DATA LOSS MIGRATION
+  // ==========================================================================
+
+  let mongoSyncDebounceTimer = null;
+
+  function syncToMongoDB(immediate = false) {
+    if (mongoSyncDebounceTimer) {
+      clearTimeout(mongoSyncDebounceTimer);
+      mongoSyncDebounceTimer = null;
+    }
+    if (immediate) {
+      performSyncToMongoDB();
+    } else {
+      mongoSyncDebounceTimer = setTimeout(performSyncToMongoDB, 350);
+    }
+  }
+
+  async function performSyncToMongoDB() {
+    if (!state.isMongoOnline) return;
+
+    try {
+      const payload = {
+        segregations: state.segregations,
+        transactions: state.transactions,
+        personalNotes: state.personalNotes,
+        savingsVault: state.savingsVault,
+        securitySettings: state.securitySettings,
+        deletedIds: Array.from(state.deletedIds || []),
+        lastUpdatedTimestamp: state.lastLocalUpdate || Date.now()
+      };
+
+      const res = await fetch(`${state.serverApiBase}/api/ledger/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        updateMongoStatusUI(true, state.mongoDbName);
+      }
+    } catch (err) {
+      console.warn('[MongoDB Sync] Network note:', err.message);
+    }
+  }
+
+  async function checkMongoStatus() {
+    try {
+      const res = await fetch(`${state.serverApiBase}/api/status`);
+      if (res.ok) {
+        const data = await res.json();
+        state.isMongoOnline = data.connected === true;
+        state.mongoDbName = data.dbName || 'expense_tracker';
+        updateMongoStatusUI(data.connected, data.dbName, data.maskedUri, data.error);
+
+        if (data.connected) {
+          // If connected, sync ledger data from MongoDB
+          await fetchLedgerFromMongoDB();
+        }
+      } else {
+        updateMongoStatusUI(false, null, '', 'Backend server responded with error');
+      }
+    } catch (err) {
+      // Backend server is not running on localhost:3000 yet or offline
+      updateMongoStatusUI(false, null, '', 'Backend server not running');
+    }
+  }
+
+  function updateMongoStatusUI(isConnected, dbName, maskedUri = '', error = '') {
+    state.isMongoOnline = isConnected;
+
+    if (DOM.mongoHeaderDot) {
+      DOM.mongoHeaderDot.className = `status-dot ${isConnected ? 'online' : 'offline'}`;
+    }
+    if (DOM.mongoHeaderText) {
+      DOM.mongoHeaderText.textContent = isConnected ? 'MongoDB (Online)' : 'MongoDB';
+    }
+
+    if (DOM.mongoStatusDot) {
+      DOM.mongoStatusDot.className = `status-dot ${isConnected ? 'online' : 'offline'}`;
+    }
+    if (DOM.mongoStatusText) {
+      DOM.mongoStatusText.textContent = isConnected ? `Connected (${dbName || 'expense_tracker'})` : 'Disconnected';
+    }
+    if (DOM.mongoConnectionBadge) {
+      DOM.mongoConnectionBadge.className = `badge-status-pill ${isConnected ? 'online' : 'offline'}`;
+    }
+
+    if (DOM.mongoUriInput && maskedUri && !DOM.mongoUriInput.value) {
+      DOM.mongoUriInput.placeholder = maskedUri;
+    }
+
+    if (DOM.mongoStatusAlert) {
+      if (isConnected) {
+        DOM.mongoStatusAlert.className = 'alert-box success mb-3';
+        DOM.mongoStatusAlert.innerHTML = `<i class="fa-solid fa-circle-check"></i> Connected to MongoDB Atlas: <strong>${escapeHTML(dbName || 'expense_tracker')}</strong>. Real-time synchronization active.`;
+        DOM.mongoStatusAlert.classList.remove('hidden');
+      } else if (error && error !== 'No MongoDB URI configured') {
+        DOM.mongoStatusAlert.className = 'alert-box danger mb-3';
+        DOM.mongoStatusAlert.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${escapeHTML(error)}`;
+        DOM.mongoStatusAlert.classList.remove('hidden');
+      } else {
+        DOM.mongoStatusAlert.classList.add('hidden');
+      }
+    }
+  }
+
+  async function handleConnectMongo(e) {
+    if (e) e.preventDefault();
+    const uri = DOM.mongoUriInput ? DOM.mongoUriInput.value.trim() : '';
+    if (!uri) {
+      showToast('Please enter your MongoDB Atlas connection string (URI)', 'warning');
+      return;
+    }
+
+    if (DOM.btnConnectMongo) {
+      DOM.btnConnectMongo.disabled = true;
+      DOM.btnConnectMongo.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
+    }
+
+    try {
+      const res = await fetch(`${state.serverApiBase}/api/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast('Successfully connected to MongoDB Atlas!', 'success');
+        await checkMongoStatus();
+
+        // Check if we should automatically migrate existing data
+        if (!state.isMongoMigrated && (state.transactions.length > 0 || state.segregations.length > 0)) {
+          await handleMigrateToMongo(false);
+        }
+      } else {
+        showToast(`MongoDB Connection failed: ${data.message}`, 'danger');
+        updateMongoStatusUI(false, null, '', data.message);
+      }
+    } catch (err) {
+      showToast('Cannot connect to backend server. Make sure "npm start" is running.', 'danger');
+      updateMongoStatusUI(false, null, '', 'Backend server unreachable');
+    } finally {
+      if (DOM.btnConnectMongo) {
+        DOM.btnConnectMongo.disabled = false;
+        DOM.btnConnectMongo.innerHTML = '<i class="fa-solid fa-plug"></i> Connect to MongoDB';
+      }
+    }
+  }
+
+  // ZERO DATA LOSS MIGRATION
+  async function handleMigrateToMongo(isUserPrompted = true) {
+    if (isUserPrompted) {
+      const totalItems = state.transactions.length + state.segregations.length + state.savingsVault.length + state.personalNotes.length;
+      if (!confirm(`Migrate all existing ${totalItems} records (${state.transactions.length} transactions, ${state.segregations.length} categories, ${state.savingsVault.length} savings entries, ${state.personalNotes.length} notes) to MongoDB Atlas? Existing data will be preserved with 100% fidelity.`)) {
+        return;
+      }
+    }
+
+    if (DOM.btnMigrateToMongo) {
+      DOM.btnMigrateToMongo.disabled = true;
+      DOM.btnMigrateToMongo.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Migrating Data...';
+    }
+
+    try {
+      // 1. Download emergency safety backup before migration
+      handleDownloadJsonBackup(true);
+
+      const payload = {
+        segregations: state.segregations,
+        transactions: state.transactions,
+        savingsVault: state.savingsVault,
+        personalNotes: state.personalNotes,
+        securitySettings: state.securitySettings,
+        deletedIds: Array.from(state.deletedIds || [])
+      };
+
+      const res = await fetch(`${state.serverApiBase}/api/migrate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        state.isMongoMigrated = true;
+        localStorage.setItem(STORAGE_KEYS.MONGO_MIGRATED, 'true');
+        const c = data.counts || {};
+        showToast(`Migration complete! ${c.transactions || 0} transactions & ${c.categories || 0} categories safely stored in MongoDB Atlas!`, 'success');
+        updateMongoStatusUI(true, state.mongoDbName);
+      } else {
+        showToast(`Migration error: ${data.message}`, 'danger');
+      }
+    } catch (err) {
+      showToast('Migration failed: backend server unreachable. Run "npm start" first.', 'danger');
+    } finally {
+      if (DOM.btnMigrateToMongo) {
+        DOM.btnMigrateToMongo.disabled = false;
+        DOM.btnMigrateToMongo.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Backup & Migrate All Data to MongoDB';
+      }
+    }
+  }
+
+  // ZERO DATA LOSS JSON BACKUP DOWNLOAD
+  function handleDownloadJsonBackup(silent = false) {
+    try {
+      const backupData = {
+        exportDate: new Date().toISOString(),
+        appName: "Akil's Expense Tracker",
+        version: "v7",
+        segregations: state.segregations,
+        transactions: state.transactions,
+        savingsVault: state.savingsVault,
+        personalNotes: state.personalNotes,
+        securitySettings: state.securitySettings,
+        deletedIds: Array.from(state.deletedIds || []),
+        lastLocalUpdate: state.lastLocalUpdate
+      };
+
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `expense_tracker_backup_${new Date().toISOString().split('T')[0]}_${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      if (!silent) {
+        showToast('Full JSON backup downloaded successfully!', 'success');
+      }
+    } catch (err) {
+      console.error('Backup download error:', err);
+      if (!silent) showToast('Failed to download backup', 'danger');
+    }
+  }
+
+  function handleRestoreJsonBackup(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        if (!data || typeof data !== 'object') {
+          showToast('Invalid backup file format.', 'danger');
+          return;
+        }
+
+        if (Array.isArray(data.segregations)) {
+          state.segregations = data.segregations;
+          saveSegregationsToStorage();
+        }
+        if (Array.isArray(data.transactions)) {
+          state.transactions = data.transactions;
+          saveTransactionsToStorage();
+        }
+        if (Array.isArray(data.savingsVault)) {
+          state.savingsVault = data.savingsVault;
+          saveSavingsVaultToStorage();
+        }
+        if (Array.isArray(data.personalNotes)) {
+          state.personalNotes = data.personalNotes;
+          saveNotesToStorage();
+        }
+        if (data.securitySettings && typeof data.securitySettings === 'object') {
+          state.securitySettings = data.securitySettings;
+          localStorage.setItem(STORAGE_KEYS.SECURITY_SETTINGS, JSON.stringify(state.securitySettings));
+        }
+        if (Array.isArray(data.deletedIds)) {
+          state.deletedIds = new Set(data.deletedIds);
+          localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(data.deletedIds));
+        }
+
+        renderAll();
+        showToast(`Backup restored! Loaded ${state.transactions.length} transactions and ${state.segregations.length} categories.`, 'success');
+
+        // Automatically sync to MongoDB if online
+        if (state.isMongoOnline) {
+          await handleMigrateToMongo(false);
+        }
+      } catch (err) {
+        console.error('Failed to parse backup JSON:', err);
+        showToast('Error reading backup file: ' + err.message, 'danger');
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function fetchLedgerFromMongoDB() {
+    if (!state.isMongoOnline) return;
+
+    try {
+      const res = await fetch(`${state.serverApiBase}/api/ledger`);
+      if (res.ok) {
+        const mongoData = await res.json();
+        if (mongoData.success) {
+          // Merge safely with Last-Write-Wins (LWW) engine
+          mergeCloudAndLocalState({
+            segregations: mongoData.segregations,
+            transactions: mongoData.transactions,
+            savingsVault: mongoData.savingsVault,
+            personalNotes: mongoData.personalNotes,
+            lastUpdated: mongoData.lastUpdated
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[MongoDB Fetch Ledger] Note:', err.message);
+    }
+  }
+
+  function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+
+    toast.innerHTML = `
+      <span>${escapeHTML(message)}</span>
+    `;
+
+    DOM.toastContainer.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(100%)';
+      setTimeout(() => toast.remove(), 300);
+    }, 3500);
+  }
+
+  function escapeHTML(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+})();

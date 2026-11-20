@@ -21,7 +21,8 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Serve static frontend assets
+// Serve static frontend assets (both from public and root)
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
 let mongoClient = null;
@@ -442,7 +443,12 @@ app.get('/api/backup', async (req, res) => {
 
 // Catch-all route to serve index.html
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  const publicIndex = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(publicIndex)) {
+    res.sendFile(publicIndex);
+  } else {
+    res.sendFile(path.join(__dirname, 'index.html'));
+  }
 });
 
 // Start Server (when run directly in Node.js)
