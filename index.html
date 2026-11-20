@@ -13,13 +13,6 @@
   <!-- Font Awesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
-  <!-- Firebase Modular JS SDKs (v10) -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-    import { getFirestore, doc, setDoc, getDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-    import { getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-    window.FirebaseSDK = { initializeApp, getFirestore, doc, setDoc, getDoc, collection, getDocs, onSnapshot, getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup };
-  </script>
 
   <!-- Chart.js for Interactive Expense Graphs -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -749,13 +742,6 @@
     </div>
   </div>
 
-  <!-- Firebase SDK for Automatic Cloud Sync -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-    window.FirebaseSDK = { initializeApp, getFirestore, doc, setDoc, onSnapshot };
-    window.dispatchEvent(new Event('firebase-sdk-ready'));
-  </script>
 
   <!-- Main JavaScript App -->
   <script src="app.js"></script>

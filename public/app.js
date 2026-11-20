@@ -40,14 +40,7 @@
     serverApiBase: (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin.startsWith('http') && !window.location.origin.includes('5500')) 
       ? window.location.origin 
       : 'http://localhost:3000',
-    firebaseConfig: null,
-    db: null,
-    auth: null,
-    userId: null,
-    isFirebaseOnline: false,
-    authMode: 'SIGN_IN',
-    isGuestMode: false,
-    currentUser: null,
+
     securitySettings: {
       userId: 'Akil',
       password: '',
@@ -68,7 +61,6 @@
     cacheDOMElements();
     loadStateFromStorage();
     setupEventListeners();
-    initFirebaseIfAvailable();
     checkMongoStatus();
     setInterval(checkMongoStatus, 15000);
     renderAll();
@@ -379,21 +371,6 @@
       saveNotesToStorage();
     }
 
-    const savedFirebase = JSON.parse(localStorage.getItem(STORAGE_KEYS.FIREBASE_CONFIG) || 'null');
-    if (savedFirebase) {
-      state.firebaseConfig = savedFirebase;
-    } else {
-      state.firebaseConfig = {
-        apiKey: "AIzaSyDdNF0Kkh7ZAQQl44kr7jwXPr5B12jLvpQ",
-        authDomain: "akils-expense-tracker.firebaseapp.com",
-        projectId: "akils-expense-tracker",
-        storageBucket: "akils-expense-tracker.firebasestorage.app",
-        messagingSenderId: "587066139643",
-        appId: "1:587066139643:web:5e22597061cd5b2804a15e",
-        measurementId: "G-CG428LP7CE"
-      };
-      localStorage.setItem(STORAGE_KEYS.FIREBASE_CONFIG, JSON.stringify(state.firebaseConfig));
-    }
 
     const savedSecurity = JSON.parse(localStorage.getItem(STORAGE_KEYS.SECURITY_SETTINGS) || 'null');
     if (savedSecurity) {
@@ -446,28 +423,24 @@
   function saveSegregationsToStorage() {
     recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.SEGREGATIONS, JSON.stringify(state.segregations));
-    syncToFirebase();
     syncToMongoDB();
   }
 
   function saveTransactionsToStorage() {
     recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
-    syncToFirebase();
     syncToMongoDB();
   }
 
   function saveSavingsVaultToStorage() {
     recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.SAVINGS_VAULT, JSON.stringify(state.savingsVault));
-    syncToFirebase();
     syncToMongoDB();
   }
 
   function saveNotesToStorage() {
     recordLocalMutation();
     localStorage.setItem(STORAGE_KEYS.PERSONAL_NOTES, JSON.stringify(state.personalNotes));
-    syncToFirebase();
     syncToMongoDB();
   }
 
@@ -782,17 +755,10 @@
       t.id.startsWith('tx_create_') ||
       t.id.startsWith('tx_init_') ||
       t.note === 'New Category Created' ||
-      t.note === 'Initial Allocation' ||
-      (t.type === 'INCOME' && segTxs.indexOf(t) === 0)
+      t.note === 'Initial Allocation'
     );
 
     const allocated = initTx ? Number(initTx.amount) : (Number(seg.allocatedFund) || 0);
-
-    // Keep seg.allocatedFund synchronized with initTx amount
-    if (initTx && Number(seg.allocatedFund) !== Number(initTx.amount)) {
-      seg.allocatedFund = Number(initTx.amount);
-      saveSegregationsToStorage();
-    }
 
     const spent = segTxs.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + Number(t.amount), 0);
 
@@ -1426,8 +1392,7 @@
         t.id.startsWith('tx_create_') ||
         t.id.startsWith('tx_init_') ||
         t.note === 'New Category Created' ||
-        t.note === 'Initial Allocation' ||
-        (t.type === 'INCOME' && segTxs.indexOf(t) === 0)
+        t.note === 'Initial Allocation'
       );
       if (!hasInitTx && (Number(seg.allocatedFund) || 0) > 0) {
         const allocDate = seg.createdDate || (segTxs.length > 0 ? segTxs[0].date : null) || new Date().toISOString().split('T')[0];
@@ -2028,8 +1993,7 @@
       t.id.startsWith('tx_create_') ||
       t.id.startsWith('tx_init_') ||
       t.note === 'New Category Created' ||
-      t.note === 'Initial Allocation' ||
-      (t.type === 'INCOME' && chronological.indexOf(t) === 0)
+      t.note === 'Initial Allocation'
     );
     let runningBal = initTx ? 0 : (Number(seg.allocatedFund) || 0);
     const balanceMap = new Map();
@@ -2428,10 +2392,11 @@
       return;
     }
 
+    const targetSeg = state.segregations.find(s => s.id === segId);
+
     // PREVENT EXPENSE FROM EXCEEDING REMAINING BALANCE (FLOOR IS 0)
     if (type === 'EXPENSE') {
-      const segExists = state.segregations.some(s => s.id === segId);
-      if (segExists) {
+      if (targetSeg) {
         const metrics = getSegregationMetrics(segId);
         let currentAvailable = metrics.remaining;
         if (txId) {
@@ -2442,14 +2407,16 @@
         }
 
         if (amount > currentAvailable) {
-          showAlertModal('Insufficient Balance!', 'Insufficient Balance!');
-          showToast('Insufficient Balance!', 'danger');
+          const catName = targetSeg.name || 'this category';
+          const availStr = `₹${Math.max(0, currentAvailable).toLocaleString('en-IN')}`;
+          const amtStr = `₹${amount.toLocaleString('en-IN')}`;
+          showAlertModal('Insufficient Balance!', `Available balance for "${catName}" is ${availStr}. Cannot spend ${amtStr}.`);
+          showToast(`Insufficient balance in ${catName}! Available: ${availStr}`, 'danger');
           return;
         }
       }
     }
 
-    const targetSeg = state.segregations.find(s => s.id === segId);
     const destSeg = (type === 'EXPENSE') ? findDestinationCategory(note, segId) : null;
 
     const now = Date.now();
@@ -2774,135 +2741,18 @@
   }
 
   function handleAuthSubmit(e) {
-    e.preventDefault();
-    hideAuthError();
-
-    const email = DOM.authEmailInput.value.trim();
-    const password = DOM.authPasswordInput.value;
-
-    if (!email || !password) {
-      showAuthError('Please enter email and password.');
-      return;
-    }
-
-    if (!state.auth && state.firebaseConfig) {
-      initFirebaseIfAvailable();
-    }
-
-    if (!state.auth) {
-      showAuthError('Firebase Auth is not configured. Click "Cloud Sync" in the sidebar to paste your config.');
-      return;
-    }
-
-    const { signInWithEmailAndPassword, createUserWithEmailAndPassword } = window.FirebaseSDK;
-
-    if (DOM.btnAuthSubmit) {
-      DOM.btnAuthSubmit.disabled = true;
-      DOM.btnAuthSubmit.textContent = 'Authenticating...';
-    }
-
-    // Try sign in first, or auto-create account on first login
-    signInWithEmailAndPassword(state.auth, email, password)
-      .then((userCred) => {
-        if (DOM.authEmailInput) DOM.authEmailInput.value = '';
-        if (DOM.authPasswordInput) DOM.authPasswordInput.value = '';
-        showToast('Welcome back, Akil!', 'success');
-      })
-      .catch((err) => {
-        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-          createUserWithEmailAndPassword(state.auth, email, password)
-            .then(() => {
-              if (DOM.authEmailInput) DOM.authEmailInput.value = '';
-              if (DOM.authPasswordInput) DOM.authPasswordInput.value = '';
-              showToast('Welcome, Akil! Account registered & signed in.', 'success');
-            })
-            .catch((signUpErr) => {
-              console.error('Sign In/Up Error:', signUpErr);
-              showAuthError(getFriendlyAuthErrorMessage(signUpErr.code));
-            });
-        } else {
-          console.error('Sign In Error:', err);
-          showAuthError(getFriendlyAuthErrorMessage(err.code));
-        }
-      })
-      .finally(() => {
-        if (DOM.btnAuthSubmit) {
-          DOM.btnAuthSubmit.disabled = false;
-          DOM.btnAuthSubmit.textContent = 'Sign In';
-        }
-      });
+    if (e) e.preventDefault();
+    showToast('App is secured locally and cloud synced to MongoDB Atlas.', 'info');
   }
 
   function handleGoogleSignIn() {
-    hideAuthError();
-
-    if (!state.auth && state.firebaseConfig) {
-      initFirebaseIfAvailable();
-    }
-
-    if (!state.auth) {
-      showAuthError('Firebase Auth is not configured. Click "Cloud Sync" in the sidebar to paste your config.');
-      return;
-    }
-
-    const { signInWithPopup, GoogleAuthProvider } = window.FirebaseSDK;
-    const provider = new GoogleAuthProvider();
-
-    signInWithPopup(state.auth, provider)
-      .then((result) => {
-        showToast(`Welcome back, ${result.user.displayName || result.user.email}!`, 'success');
-      })
-      .catch((err) => {
-        console.error('Google Sign In Error:', err);
-        if (err.code !== 'auth/popup-closed-by-user') {
-          showAuthError(getFriendlyAuthErrorMessage(err.code));
-        }
-      });
+    showToast('App is secured locally and cloud synced to MongoDB Atlas.', 'info');
   }
 
   function handleSignOut() {
     state.isGuestMode = false;
-    if (!state.auth) {
-      if (DOM.authView) DOM.authView.classList.remove('hidden');
-      if (DOM.userInfoContainer) DOM.userInfoContainer.classList.add('hidden');
-      if (DOM.btnShowAuthModal) DOM.btnShowAuthModal.classList.add('hidden');
-      showToast('Signed out', 'info');
-      return;
-    }
-
-    const { signOut } = window.FirebaseSDK;
-    signOut(state.auth)
-      .then(() => {
-        state.currentUser = null;
-        state.userId = null;
-        if (DOM.authView) DOM.authView.classList.remove('hidden');
-        if (DOM.userInfoContainer) DOM.userInfoContainer.classList.add('hidden');
-        if (DOM.btnShowAuthModal) DOM.btnShowAuthModal.classList.add('hidden');
-        showToast('Signed out successfully!', 'success');
-      })
-      .catch(err => console.error('Sign Out Error:', err));
+    showToast('Signed out', 'info');
   }
-
-  function getFriendlyAuthErrorMessage(code) {
-    switch (code) {
-      case 'auth/invalid-credential':
-      case 'auth/user-not-found':
-      case 'auth/wrong-password':
-        return 'Invalid email or password.';
-      case 'auth/email-already-in-use':
-        return 'An account with this email already exists. Try signing in.';
-      case 'auth/weak-password':
-        return 'Password should be at least 6 characters.';
-      case 'auth/invalid-email':
-        return 'Please enter a valid email address.';
-      case 'auth/popup-closed-by-user':
-        return 'Sign-in popup was closed.';
-      default:
-        return 'Authentication failed. Please check your credentials.';
-    }
-  }
-
-  let isFirebaseInitialized = false;
 
   function getItemTimestamp(item) {
     if (!item) return 0;
@@ -2938,6 +2788,10 @@
           const localSeg = segMap.get(cloudSeg.id);
           const localTime = getItemTimestamp(localSeg);
           const cloudTime = getItemTimestamp(cloudSeg);
+
+          if (cloudSeg.allocatedFund && (!localSeg.allocatedFund || Number(localSeg.allocatedFund) < Number(cloudSeg.allocatedFund))) {
+            localSeg.allocatedFund = cloudSeg.allocatedFund;
+          }
 
           if (cloudTime > localTime) {
             segMap.set(cloudSeg.id, { ...localSeg, ...cloudSeg });
@@ -3098,129 +2952,9 @@
     purgeEmptyDefaultSavings();
     renderAll();
 
-    // If local state had newer edits or un-synced data, push merged state up to Firestore
+    // If local state had newer edits or un-synced data, push merged state up to MongoDB Atlas
     if (cloudNeedsUpdate || state.hasPendingSync) {
-      syncToFirebase(true);
-    }
-  }
-
-  function initFirebaseIfAvailable() {
-    if (isFirebaseInitialized) return;
-    if (!state.firebaseConfig || !window.FirebaseSDK) {
-      state.isFirebaseOnline = false;
-      if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
-      return;
-    }
-
-    try {
-      const { initializeApp, getFirestore, doc, onSnapshot } = window.FirebaseSDK;
-      const app = initializeApp(state.firebaseConfig);
-      state.db = getFirestore(app);
-      state.isFirebaseOnline = true;
-      isFirebaseInitialized = true;
-      if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot online';
-
-      // Realtime Sync Document (unified doc key 'akil_main_ledger' so computer & phone sync instantly)
-      const syncDocId = 'akil_main_ledger';
-      const userDocRef = doc(state.db, 'users', syncDocId);
-
-      onSnapshot(userDocRef, (docSnap) => {
-        // Skip local optimistic echo snapshots while our own write is in flight
-        if (docSnap.metadata && docSnap.metadata.hasPendingWrites) {
-          return;
-        }
-
-        if (docSnap.exists()) {
-          const cloudData = docSnap.data();
-          mergeCloudAndLocalState(cloudData);
-          state.isInitialCloudSyncDone = true;
-        } else {
-          // Document does not exist in Cloud Firestore yet: push current local state to cloud!
-          state.isInitialCloudSyncDone = true;
-          syncToFirebase(true);
-        }
-      }, (err) => {
-        console.warn('Cloud Sync listener warning:', err);
-        state.isFirebaseOnline = false;
-        if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
-      });
-
-      // If user made edits before Firebase finished initializing, push them now!
-      if (state.hasPendingSync) {
-        syncToFirebase(true);
-      }
-    } catch (err) {
-      console.error('Firebase Initialization Error:', err);
-      state.isFirebaseOnline = false;
-      if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
-    }
-  }
-
-  window.addEventListener('firebase-sdk-ready', () => {
-    initFirebaseIfAvailable();
-  });
-  window.addEventListener('load', () => {
-    initFirebaseIfAvailable();
-  });
-  const sdkCheckInterval = setInterval(() => {
-    if (window.FirebaseSDK) {
-      initFirebaseIfAvailable();
-      clearInterval(sdkCheckInterval);
-    }
-  }, 500);
-
-  let syncDebounceTimer = null;
-
-  function syncToFirebase(immediate = false) {
-    if (syncDebounceTimer) {
-      clearTimeout(syncDebounceTimer);
-      syncDebounceTimer = null;
-    }
-    if (immediate) {
-      performSyncToFirebase();
-    } else {
-      syncDebounceTimer = setTimeout(performSyncToFirebase, 300);
-    }
-  }
-
-  function performSyncToFirebase() {
-    if (!state.db || !window.FirebaseSDK) {
-      state.hasPendingSync = true;
-      return;
-    }
-
-    try {
-      const { doc, setDoc } = window.FirebaseSDK;
-      const syncDocId = 'akil_main_ledger';
-      const userDocRef = doc(state.db, 'users', syncDocId);
-
-      const payload = {
-        segregations: state.segregations,
-        transactions: state.transactions,
-        personalNotes: state.personalNotes,
-        savingsVault: state.savingsVault,
-        lastUpdated: new Date().toISOString(),
-        lastUpdatedTimestamp: Date.now()
-      };
-
-      setDoc(userDocRef, payload, { merge: true })
-        .then(() => {
-          state.isFirebaseOnline = true;
-          state.hasPendingSync = false;
-          if (DOM.cloudSyncBadge) {
-            DOM.cloudSyncBadge.className = 'status-dot online';
-            DOM.cloudSyncBadge.title = 'Live synced to Cloud Firestore at ' + new Date().toLocaleTimeString();
-          }
-        })
-        .catch((err) => {
-          console.error('Firebase Sync Write Error:', err);
-          state.isFirebaseOnline = false;
-          state.hasPendingSync = true;
-          if (DOM.cloudSyncBadge) DOM.cloudSyncBadge.className = 'status-dot offline';
-        });
-    } catch (err) {
-      console.error('Firebase Sync Error:', err);
-      state.hasPendingSync = true;
+      syncToMongoDB(true);
     }
   }
 
@@ -3340,7 +3074,7 @@
 
     localStorage.setItem(STORAGE_KEYS.SECURITY_SETTINGS, JSON.stringify(state.securitySettings));
     renderAll();
-    syncToFirebase();
+    syncToMongoDB();
     showToast('Security settings updated successfully!', 'success');
   }
 
